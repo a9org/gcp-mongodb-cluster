@@ -21,7 +21,7 @@ resource "google_compute_region_instance_group_manager" "mongodb_shard" {
     health_check      = google_compute_health_check.mongodb_health_check.id
     initial_delay_sec = 300
   }
-  
+
 }
 
 # Health Check
@@ -33,8 +33,6 @@ resource "google_compute_health_check" "mongodb_health_check" {
   tcp_health_check {
     port = 27017
   }
-
-  labels = local.common_tags
 }
 
 # Autoscaler for each shard

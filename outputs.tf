@@ -87,17 +87,6 @@ output "monitoring_policy_details" {
   }
 }
 
-# Firewall Outputs
-output "firewall_rule_details" {
-  description = "Details of the MongoDB firewall rules"
-  value = {
-    name          = google_compute_firewall.mongodb_firewall.name
-    allowed_ports = google_compute_firewall.mongodb_firewall.allow[0].ports
-    source_ranges = google_compute_firewall.mongodb_firewall.source_ranges
-    target_tags   = google_compute_firewall.mongodb_firewall.target_tags
-  }
-}
-
 # MongoDB password
 output "mongodb_password" {
   description = "MongoDB admin password"
