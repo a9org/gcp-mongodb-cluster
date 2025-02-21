@@ -3,7 +3,7 @@ resource "google_compute_region_instance_group_manager" "mongodb_shard" {
   count = 3
   name  = "${local.prefix_name}-mongodb-shard-${count.index + 1}"
 
-  base_instance_name = "mongodb-shard-${count.index + 1}"
+  base_instance_name = "${local.prefix_name}-mongodb-shard-${count.index + 1}"
   region             = var.region
 
   version {
