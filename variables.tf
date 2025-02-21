@@ -57,3 +57,15 @@ variable "create_dns" {
   type        = bool
   default     = true
 }
+
+variable "mongodb_data_disk_size" {
+  description = "Size of the MongoDB data disk in GB"
+  type        = number
+  default     = 100
+}
+
+variable "mongodb_logs_disk_size" {
+  description = "Size of the MongoDB logs disk in GB"
+  type        = number
+  default     = 50
+}
