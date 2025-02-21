@@ -10,7 +10,6 @@ resource "google_compute_region_backend_service" "mongodb_backend" {
     group = google_compute_region_instance_group_manager.mongodb_shard[count.index].instance_group
   }
 
-  labels = local.common_tags
 }
 
 # Forwarding Rule
