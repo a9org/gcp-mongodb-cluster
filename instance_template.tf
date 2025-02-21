@@ -1,6 +1,6 @@
 # Instance Template
 resource "google_compute_instance_template" "mongodb_template" {
-  name        = "mongodb-template"
+  name        = "${local.prefix_name}-mongodb-template"
   description = "Template for MongoDB instances"
 
   tags = ["mongodb-node"]
@@ -35,4 +35,6 @@ resource "google_compute_instance_template" "mongodb_template" {
   service_account {
     scopes = ["cloud-platform"]
   }
+
+  labels = local.common_tags
 }

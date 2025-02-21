@@ -49,7 +49,7 @@ variable "subnetwork" {
 variable "autoscaling_enabled" {
   description = "Enable or disable autoscaling for the node pool.  When enabled, the node pool will automatically adjust its size between 'min_nodes' and 'max_nodes' based on resource utilization.  Set to 'true' to enable, 'false' to disable."
   type        = bool
-  default     = true 
+  default     = true
 }
 
 variable "create_dns" {
