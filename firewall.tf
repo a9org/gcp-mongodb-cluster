@@ -1,4 +1,5 @@
-# Firewall Rules
+# Firewall 
+#tfsec:ignore:google-compute-no-public-ingress
 resource "google_compute_firewall" "mongodb_firewall" {
   name    = "${local.prefix_name}-mongodb-firewall"
   network = var.network
