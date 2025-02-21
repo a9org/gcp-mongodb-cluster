@@ -1,10 +1,10 @@
 # Managed Instance Groups (MIG) for each shard
 resource "google_compute_region_instance_group_manager" "mongodb_shard" {
   count = 3
-  name  = "mongodb-shard-${count.index + 1}"
+  name  = "${local.prefix_name}-mongodb-shard-${count.index + 1}"
 
   base_instance_name = "mongodb-shard-${count.index + 1}"
-  region            = var.region
+  region             = var.region
 
   version {
     instance_template = google_compute_instance_template.mongodb_template.id
@@ -21,23 +21,27 @@ resource "google_compute_region_instance_group_manager" "mongodb_shard" {
     health_check      = google_compute_health_check.mongodb_health_check.id
     initial_delay_sec = 300
   }
+
+  labels = local.common_tags
 }
 
 # Health Check
 resource "google_compute_health_check" "mongodb_health_check" {
-  name               = "mongodb-health-check"
+  name               = "${local.prefix_name}-mongodb-health-check"
   timeout_sec        = 5
   check_interval_sec = 10
 
   tcp_health_check {
     port = 27017
   }
+
+  labels = local.common_tags
 }
 
 # Autoscaler for each shard
 resource "google_compute_region_autoscaler" "mongodb_autoscaler" {
   count  = var.autoscaling_enabled ? 3 : 0
-  name   = "mongodb-autoscaler-${count.index + 1}"
+  name   = "${local.prefix_name}-mongodb-autoscaler-${count.index + 1}"
   region = "us-central1"
   target = google_compute_region_instance_group_manager.mongodb_shard[count.index].id
 
