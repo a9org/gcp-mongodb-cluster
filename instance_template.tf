@@ -5,7 +5,6 @@ resource "random_password" "mongodb" {
   override_special = "&8h8a9QogDb3y"
 }
 
-
 # Instance Template
 resource "google_compute_instance_template" "mongodb_template" {
   name        = "${local.prefix_name}-mongodb-template"
@@ -79,6 +78,9 @@ resource "google_compute_instance_template" "mongodb_template" {
       chmod 755 /data/mongodb
       chmod 755 /var/log/mongodb
 
+      # Obtém o número do shard a partir do nome da instância
+      SHARD_NUMBER=$(echo $INSTANCE_NAME | grep -o '[0-9]*$')
+
       # Configuração do MongoDB
       cat > /etc/mongod.conf <<EOL
       storage:
@@ -93,7 +95,7 @@ resource "google_compute_instance_template" "mongodb_template" {
         port: 27017
         bindIp: 0.0.0.0
       replication:
-        replSetName: "rs-shard-\${SHARD_NUMBER}"
+        replSetName: "rs-shard-$SHARD_NUMBER"
       sharding:
         clusterRole: shardsvr
       EOL
@@ -110,14 +112,11 @@ resource "google_compute_instance_template" "mongodb_template" {
       INSTANCE_ZONE=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4)
       PROJECT_ID=$(curl -s "http://metadata.google.internal/computeMetadata/v1/project/project-id" -H "Metadata-Flavor: Google")
 
-      # Obtém o número do shard a partir do nome da instância
-      SHARD_NUMBER=$(echo $INSTANCE_NAME | grep -o '[0-9]*$')
-
       # Inicializa o Replica Set se for o primeiro node do shard
       if [[ $INSTANCE_NAME == *"-0" ]]; then
         mongosh --eval "
           rs.initiate({
-            _id: 'rs-shard-${SHARD_NUMBER}',
+            _id: 'rs-shard-$SHARD_NUMBER',
             members: [{
               _id: 0,
               host: '$(hostname -f):27017',
@@ -133,7 +132,7 @@ resource "google_compute_instance_template" "mongodb_template" {
         mongosh admin --eval "
           db.createUser({
             user: 'admin',
-            pwd: '${random_password.mongodb.result}', # Usa o password gerado
+            pwd: '${random_password.mongodb.result}',
             roles: ['root']
           })
         "

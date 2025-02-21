@@ -7,7 +7,7 @@ resource "google_dns_managed_zone" "mongodb_zone" {
 
   private_visibility_config {
     networks {
-      network_url = google_compute_network.mongodb_network.id
+      network_url = var.network
     }
   }
   labels = local.common_tags
