@@ -42,8 +42,8 @@ resource "google_compute_region_autoscaler" "mongodb_autoscaler" {
   target = google_compute_region_instance_group_manager.mongodb_shard[count.index].id
 
   autoscaling_policy {
-    max_replicas    = 5
-    min_replicas    = 3
+    max_replicas    = var.max_nodes
+    min_replicas    = var.min_nodes
     cooldown_period = 60
 
     cpu_utilization {

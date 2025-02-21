@@ -1,3 +1,4 @@
+# Instance Template
 resource "google_compute_instance_template" "mongodb_template" {
   name        = "mongodb-template"
   description = "Template for MongoDB instances"

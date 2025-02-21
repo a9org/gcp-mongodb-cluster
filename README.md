@@ -32,7 +32,6 @@ This module creates the following resources in GCP:
 - **MongoDB Shards:** Three independent shards for data distribution
 - **Instance Groups:** Managed instance groups for each shard with autoscaling
 - **Load Balancers:** Internal load balancers for traffic distribution
-- **Network Infrastructure:** VPC, subnets, and firewall rules
 - **Monitoring:** Cloud Monitoring alerts and health checks
 - **DNS:** Internal DNS configuration for service discovery
 
@@ -56,8 +55,8 @@ This module supports the following variables for customization:
 - `min_nodes`: The minimum number of nodes per shard
 - `max_nodes`: The maximum number of nodes per shard
 - `machine_type`: The machine type for MongoDB instances
-- `network`: The name of the VPC network
-- `subnetwork`: The name of the subnet
+* `network`: The name or self-link of the Google Compute Engine network.
+* `subnetwork`: The name or self-link of the Google Compute Engine subnet.
 
 For more details, see `variables.tf`
 
@@ -88,8 +87,8 @@ module "mongodb_cluster" {
   min_nodes    = 3
   max_nodes    = 5
   machine_type = "e2-standard-2"
-  network      = "mongodb-network"
-  subnetwork   = "mongodb-subnet"
+  network      = "your_network_self_link"
+  subnetwork   = "your_subnet_self_link"
 }
 ```
 

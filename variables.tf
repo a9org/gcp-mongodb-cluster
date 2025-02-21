@@ -21,11 +21,13 @@ variable "environment" {
 variable "min_nodes" {
   description = "The minimum number of nodes in the cluster"
   type        = number
+  default     = 3
 }
 
 variable "max_nodes" {
   description = "The maximum number of nodes in the cluster"
   type        = number
+  default     = 5
 }
 
 variable "machine_type" {
