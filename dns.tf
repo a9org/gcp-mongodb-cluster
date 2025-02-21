@@ -16,7 +16,7 @@ resource "google_dns_managed_zone" "mongodb_zone" {
 resource "google_dns_record_set" "mongodb" {
   count        = var.create_dns ? 3 : 0
   name         = "shard-${count.index + 1}.mongodb.internal."
-  managed_zone = google_dns_managed_zone.mongodb_zone.name
+  managed_zone = google_dns_managed_zone.mongodb_zone[0].name
   type         = "A"
   ttl          = 300
 
