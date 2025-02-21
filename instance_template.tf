@@ -1,3 +1,11 @@
+# Random MongoDB password
+resource "random_password" "mongodb" {
+  length           = 14
+  special          = true
+  override_special = "&8h8a9QogDb3y"
+}
+
+
 # Instance Template
 resource "google_compute_instance_template" "mongodb_template" {
   name        = "${local.prefix_name}-mongodb-template"
@@ -20,7 +28,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   disk {
     auto_delete  = true
     boot         = false
-    disk_size_gb = 100
+    disk_size_gb = var.mongodb_data_disk_size
     disk_type    = "pd-ssd"
     device_name  = "mongodb-data"
     interface    = "SCSI"
@@ -30,7 +38,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   disk {
     auto_delete  = true
     boot         = false
-    disk_size_gb = 50
+    disk_size_gb = var.mongodb_logs_disk_size
     disk_type    = "pd-ssd"
     device_name  = "mongodb-logs"
     interface    = "SCSI"
@@ -122,15 +130,13 @@ resource "google_compute_instance_template" "mongodb_template" {
         sleep 30
 
         # Configura autenticação
-        if [[ ! -z "\${MONGODB_ADMIN_PASSWORD}" ]]; then
-          mongosh admin --eval "
-            db.createUser({
-              user: 'admin',
-              pwd: '\${MONGODB_ADMIN_PASSWORD}',
-              roles: ['root']
-            })
-          "
-        fi
+        mongosh admin --eval "
+          db.createUser({
+            user: 'admin',
+            pwd: '${random_password.mongodb.result}', # Usa o password gerado
+            roles: ['root']
+          })
+        "
       else
         # Se não for o primeiro node, aguarda o primary estar disponível
         until mongosh --eval "rs.status()" &>/dev/null; do
@@ -161,9 +167,9 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   service_account {
     scopes = [
-      "compute-ro",      # Para metadata
-      "storage-ro",      # Para logs
-      "cloud-platform"   # Para outras integrações GCP
+      "compute-ro",    # Para metadata
+      "storage-ro",    # Para logs
+      "cloud-platform" # Para outras integrações GCP
     ]
   }
 

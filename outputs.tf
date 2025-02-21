@@ -97,3 +97,10 @@ output "firewall_rule_details" {
     target_tags   = google_compute_firewall.mongodb_firewall.target_tags
   }
 }
+
+# MongoDB password
+output "mongodb_password" {
+  description = "MongoDB admin password"
+  sensitive   = true
+  value       = resource.random_password.mongodb.result
+}
