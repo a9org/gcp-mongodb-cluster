@@ -65,7 +65,6 @@ For more details, see `variables.tf`
 
 The module provides comprehensive outputs including:
 
-- Network details (VPC, subnets)
 - Instance group information
 - Load balancer IPs
 - DNS records
