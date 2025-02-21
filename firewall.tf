@@ -12,5 +12,4 @@ resource "google_compute_firewall" "mongodb_firewall" {
   source_ranges = ["0.0.0.0/0"]
   target_tags   = ["mongodb-node"]
 
-  labels = local.common_tags
 }
