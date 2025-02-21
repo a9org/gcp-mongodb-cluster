@@ -44,12 +44,3 @@ jobs:
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           soft_fail: true
-          format: sarif
-          out: results/tfsec.sarif
-          
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
-        if: success() || failure()    # Upload mesmo se o tfsec encontrar problemas
-        with:
-          sarif_file: results/tfsec.sarif
-          category: tfsec
