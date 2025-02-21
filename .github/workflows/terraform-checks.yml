@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - master
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -36,16 +37,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Create results directory
+        run: mkdir -p results
         
       - name: Run TFSec
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           soft_fail: true
           format: sarif
-          out: tfsec.sarif
+          out: results/tfsec.sarif
           
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
+        if: success() || failure()    # Upload mesmo se o tfsec encontrar problemas
         with:
-          sarif_file: tfsec.sarif
+          sarif_file: results/tfsec.sarif
           category: tfsec
