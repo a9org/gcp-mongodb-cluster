@@ -28,8 +28,8 @@ output "load_balancer_ips" {
 output "dns_details" {
   description = "DNS information for MongoDB cluster"
   value = {
-    zone_name = google_dns_managed_zone.mongodb_zone.name
-    dns_name  = google_dns_managed_zone.mongodb_zone.dns_name
+    zone_name = google_dns_managed_zone.mongodb_zone[0].name
+    dns_name  = google_dns_managed_zone.mongodb_zone[0].dns_name
     records = {
       for idx, record in google_dns_record_set.mongodb : "shard-${idx + 1}" => {
         name    = record.name
