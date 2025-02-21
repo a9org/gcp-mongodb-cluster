@@ -12,7 +12,7 @@ resource "google_compute_instance_template" "mongodb_template" {
     source_image = "ubuntu-os-cloud/ubuntu-2004-lts"
     auto_delete  = true
     boot         = true
-    disk_size_gb = 50
+    disk_size_gb = 30
     disk_type    = "pd-ssd"
   }
 
@@ -20,7 +20,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   disk {
     auto_delete  = true
     boot         = false
-    disk_size_gb = 500
+    disk_size_gb = 100
     disk_type    = "pd-ssd"
     device_name  = "mongodb-data"
     interface    = "SCSI"
@@ -30,7 +30,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   disk {
     auto_delete  = true
     boot         = false
-    disk_size_gb = 100
+    disk_size_gb = 50
     disk_type    = "pd-ssd"
     device_name  = "mongodb-logs"
     interface    = "SCSI"
@@ -46,9 +46,9 @@ resource "google_compute_instance_template" "mongodb_template" {
       #!/bin/bash
       set -e
 
-      # Instalação do MongoDB
-      wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | apt-key add -
-      echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-5.0.list
+      # Instalação do MongoDB 6.0
+      wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
+      echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
       apt-get update
       apt-get install -y mongodb-org
 
@@ -143,6 +143,19 @@ resource "google_compute_instance_template" "mongodb_template" {
           rs.add('$(hostname -f):27017')
         "
       fi
+
+      # Configuração do logrotate para o MongoDB
+      echo "
+      /var/log/mongodb/mongod.log {
+      daily
+      rotate 7
+      compress
+      missingok
+      notifempty
+      copytruncate
+      }
+      " > /etc/logrotate.d/mongodb
+
       EOF
   }
 
