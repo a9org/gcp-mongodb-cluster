@@ -69,3 +69,9 @@ variable "mongodb_logs_disk_size" {
   type        = number
   default     = 50
 }
+
+variable "is_cluster" {
+  description = "Enable a MongoDB cluster"
+  type        = bool
+  default     = true
+}
