@@ -7,9 +7,9 @@ resource "google_compute_region_backend_service" "mongodb_backend" {
   health_checks = [google_compute_health_check.mongodb_health_check.id]
 
   backend {
-    group = google_compute_region_instance_group_manager.mongodb_shard[count.index].instance_group
+    group          = google_compute_region_instance_group_manager.mongodb_shard[count.index].instance_group
+    balancing_mode = "CONNECTION"  # Corrigido para usar CONNECTION ao invés de UTILIZATION
   }
-
 }
 
 # Forwarding Rule

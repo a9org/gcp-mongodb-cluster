@@ -10,7 +10,7 @@ resource "google_compute_region_instance_group_manager" "mongodb_shard" {
     instance_template = google_compute_instance_template.mongodb_template.id
   }
 
-  target_size = var.is_cluster ? 3 : 1
+  target_size = 1
 
   named_port {
     name = "mongodb"
