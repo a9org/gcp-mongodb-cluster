@@ -15,7 +15,7 @@ resource "google_compute_region_backend_service" "mongodb_backend" {
 resource "google_compute_forwarding_rule" "mongodb_forwarding_rule" {
   name                  = "${local.prefix_name}-mongodb-forwarding-rule"
   region                = var.region
-  port_range           = "27017"
+  ports                = ["27017"]  # Alterado de port_range para ports
   backend_service       = google_compute_region_backend_service.mongodb_backend.id
   load_balancing_scheme = "INTERNAL"
   network              = var.network
