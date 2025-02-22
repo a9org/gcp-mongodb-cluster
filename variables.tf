@@ -61,7 +61,7 @@ variable "create_dns" {
 variable "mongodb_data_disk_size" {
   description = "Size of the MongoDB data disk in GB"
   type        = number
-  default     = 100
+  default     = 300
 }
 
 variable "mongodb_logs_disk_size" {
@@ -74,4 +74,16 @@ variable "is_cluster" {
   description = "Enable a MongoDB cluster"
   type        = bool
   default     = true
+}
+
+variable "admin_ip_ranges" {
+  description = "Lista de ranges IP permitidos para acesso administrativo"
+  type        = list(string)
+  default     = []
+}
+
+variable "app_ip_ranges" {
+  description = "Lista de ranges IP das aplicações que acessarão o MongoDB"
+  type        = list(string)
+  default     = []
 }

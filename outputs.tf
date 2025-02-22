@@ -93,3 +93,23 @@ output "mongodb_password" {
   sensitive   = true
   value       = resource.random_password.mongodb.result
 }
+
+output "mongodb_connection_string" {
+  description = "String de conexão principal para o cluster MongoDB"
+  value       = "mongodb://${google_compute_forwarding_rule.mongodb_router.ip_address}:27017"
+}
+
+output "mongodb_router_address" {
+  description = "Endereço IP do load balancer dos routers MongoDB"
+  value       = google_compute_forwarding_rule.mongodb_router.ip_address
+}
+
+output "mongodb_internal_connection_string" {
+  description = "String de conexão interna com todos os routers para alta disponibilidade"
+  value = format(
+    "mongodb://%s:27017,%s:27017/?replicaSet=rs-router",
+    google_compute_forwarding_rule.mongodb_router.ip_address,
+    google_compute_forwarding_rule.mongodb_router_secondary.ip_address
+  )
+  sensitive = true
+}
