@@ -5,16 +5,16 @@ resource "random_password" "mongodb" {
   override_special = "&8h8a9QogDb3y"
 }
 
+
 # Instance Template
 resource "google_compute_instance_template" "mongodb_template" {
   name        = "${local.prefix_name}-mongodb-template"
-  description = "Template for MongoDB instances"
+  description = "Template for MongoDB ReplicaSet instances"
 
   tags = ["${local.prefix_name}-mongodb-node"]
 
   machine_type = var.machine_type
 
-  # Disco do sistema operacional
   disk {
     source_image = "ubuntu-os-cloud/ubuntu-2004-lts"
     auto_delete  = true
@@ -23,7 +23,6 @@ resource "google_compute_instance_template" "mongodb_template" {
     disk_type    = "pd-ssd"
   }
 
-  # Disco para dados do MongoDB
   disk {
     auto_delete  = true
     boot         = false
@@ -33,7 +32,6 @@ resource "google_compute_instance_template" "mongodb_template" {
     interface    = "SCSI"
   }
 
-  # Disco para logs do MongoDB
   disk {
     auto_delete  = true
     boot         = false
@@ -60,26 +58,20 @@ resource "google_compute_instance_template" "mongodb_template" {
       apt-get install -y mongodb-org
 
       # Configuração dos discos
-      # Disco de dados
       mkfs.xfs /dev/disk/by-id/google-mongodb-data
       mkdir -p /data/mongodb
       mount /dev/disk/by-id/google-mongodb-data /data/mongodb
       echo "/dev/disk/by-id/google-mongodb-data /data/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
 
-      # Disco de logs
       mkfs.xfs /dev/disk/by-id/google-mongodb-logs
       mkdir -p /var/log/mongodb
       mount /dev/disk/by-id/google-mongodb-logs /var/log/mongodb
       echo "/dev/disk/by-id/google-mongodb-logs /var/log/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
 
-      # Ajuste das permissões
       chown -R mongodb:mongodb /data/mongodb
       chown -R mongodb:mongodb /var/log/mongodb
       chmod 755 /data/mongodb
       chmod 755 /var/log/mongodb
-
-      # Obtém o número do shard a partir do nome da instância
-      SHARD_NUMBER=$(echo $INSTANCE_NAME | grep -o '[0-9]*$')
 
       # Configuração do MongoDB
       cat > /etc/mongod.conf <<EOL
@@ -95,28 +87,23 @@ resource "google_compute_instance_template" "mongodb_template" {
         port: 27017
         bindIp: 0.0.0.0
       replication:
-        replSetName: "rs-shard-$SHARD_NUMBER"
-      sharding:
-        clusterRole: shardsvr
+        replSetName: "rs0"
       EOL
 
       # Inicialização do MongoDB
       systemctl start mongod
       systemctl enable mongod
 
-      # Aguarda o MongoDB iniciar
       sleep 30
 
       # Inicializa o Replica Set
       INSTANCE_NAME=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/name" -H "Metadata-Flavor: Google")
-      INSTANCE_ZONE=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d'/' -f4)
-      PROJECT_ID=$(curl -s "http://metadata.google.internal/computeMetadata/v1/project/project-id" -H "Metadata-Flavor: Google")
 
-      # Inicializa o Replica Set se for o primeiro node do shard
+      # Inicializa o Replica Set se for o primeiro node
       if [[ $INSTANCE_NAME == *"-0" ]]; then
         mongosh --eval "
           rs.initiate({
-            _id: 'rs-shard-$SHARD_NUMBER',
+            _id: 'rs0',
             members: [{
               _id: 0,
               host: '$(hostname -f):27017',
@@ -125,10 +112,8 @@ resource "google_compute_instance_template" "mongodb_template" {
           })
         "
 
-        # Aguarda a inicialização do replica set
         sleep 30
 
-        # Configura autenticação
         mongosh admin --eval "
           db.createUser({
             user: 'admin',
@@ -137,38 +122,35 @@ resource "google_compute_instance_template" "mongodb_template" {
           })
         "
       else
-        # Se não for o primeiro node, aguarda o primary estar disponível
         until mongosh --eval "rs.status()" &>/dev/null; do
           sleep 10
         done
 
-        # Adiciona este node ao replica set
         PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary")
         mongosh --host $PRIMARY_HOST --eval "
           rs.add('$(hostname -f):27017')
         "
       fi
 
-      # Configuração do logrotate para o MongoDB
+      # Configuração do logrotate
       echo "
       /var/log/mongodb/mongod.log {
-      daily
-      rotate 7
-      compress
-      missingok
-      notifempty
-      copytruncate
+        daily
+        rotate 7
+        compress
+        missingok
+        notifempty
+        copytruncate
       }
       " > /etc/logrotate.d/mongodb
-
       EOF
   }
 
   service_account {
     scopes = [
-      "compute-ro",    # Para metadata
-      "storage-ro",    # Para logs
-      "cloud-platform" # Para outras integrações GCP
+      "compute-ro",
+      "storage-ro",
+      "cloud-platform"
     ]
   }
 

@@ -18,18 +18,6 @@ variable "environment" {
   type        = string
 }
 
-variable "min_nodes" {
-  description = "The minimum number of nodes in the cluster"
-  type        = number
-  default     = 3
-}
-
-variable "max_nodes" {
-  description = "The maximum number of nodes in the cluster"
-  type        = number
-  default     = 5
-}
-
 variable "machine_type" {
   description = "The machine type of the nodes in the cluster"
   type        = string
@@ -44,12 +32,6 @@ variable "network" {
 variable "subnetwork" {
   description = "The name or self_link of the Google Compute Engine subnetwork in which the cluster's instances are launched."
   type        = string
-}
-
-variable "autoscaling_enabled" {
-  description = "Enable or disable autoscaling for the node pool.  When enabled, the node pool will automatically adjust its size between 'min_nodes' and 'max_nodes' based on resource utilization.  Set to 'true' to enable, 'false' to disable."
-  type        = bool
-  default     = true
 }
 
 variable "create_dns" {
@@ -70,8 +52,8 @@ variable "mongodb_logs_disk_size" {
   default     = 50
 }
 
-variable "is_cluster" {
-  description = "Enable a MongoDB cluster"
-  type        = bool
-  default     = true
+variable "replica_count" {
+  description = "Number of nodes in the MongoDB ReplicaSet"
+  type        = number
+  default     = 3
 }
