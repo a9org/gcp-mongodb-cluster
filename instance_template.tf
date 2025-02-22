@@ -48,7 +48,7 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   metadata = {
     ssh-keys = "ubuntu:${var.ssh_public_key}"  # Adicionando a chave SSH
-    startup-script = <<'EOF'
+    startup-script = <<EOF
 #!/bin/bash
 set -e
 
@@ -157,6 +157,28 @@ get_replicaset_status() {
   echo $(mongosh --quiet --eval "rs.status().ok")
 }
 
+# Função para tentar inicializar o ReplicaSet
+try_initialize_replicaset() {
+  mongosh --eval "
+    rs.initiate({
+      _id: 'rs0',
+      members: [{
+        _id: 0,
+        host: '$(hostname -f):27017',
+        priority: 1
+      }]
+    })
+  "
+}
+
+# Função para tentar adicionar o nó ao ReplicaSet
+try_add_to_replicaset() {
+  local primary_host=$1
+  mongosh --host $primary_host --eval "
+    rs.add('$(hostname -f):27017')
+  "
+}
+
 # Tenta inicializar ou juntar-se ao ReplicaSet
 MAX_ATTEMPTS=30
 ATTEMPT=1
@@ -168,16 +190,7 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
   # Verifica se o ReplicaSet já está iniciado
   if ! check_replicaset_initialized; then
     echo "ReplicaSet não está iniciado. Tentando inicializar..."
-    mongosh --eval '
-      rs.initiate({
-        _id: "rs0",
-        members: [{
-          _id: 0,
-          host: "'$(hostname -f)':27017",
-          priority: 1
-        }]
-      })
-    '
+    try_initialize_replicaset
     sleep 10
     
     if [ "$(get_replicaset_status)" == "1" ]; then
@@ -190,9 +203,7 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary" || echo "")
     
     if [ ! -z "$PRIMARY_HOST" ]; then
-      mongosh --host "$PRIMARY_HOST" --eval '
-        rs.add("'$(hostname -f)':27017")
-      '
+      try_add_to_replicaset $PRIMARY_HOST
       sleep 10
       INITIALIZED=true
       break
@@ -211,13 +222,13 @@ if [ "$INITIALIZED" = true ]; then
     echo "Configurando usuário admin..."
     sleep 30  # Aguarda a estabilização do ReplicaSet
     
-    mongosh admin --eval '
+    mongosh admin --eval "
       db.createUser({
-        user: "admin",
-        pwd: "MONGODB_PASSWORD",
-        roles: ["root"]
+        user: 'admin',
+        pwd: '${random_password.mongodb.result}',
+        roles: ['root']
       })
-    '
+    "
     
     # Habilita autenticação após criar o usuário
     sed -i 's/security:/security:\n  authorization: enabled/' /etc/mongod.conf
