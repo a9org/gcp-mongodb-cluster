@@ -47,6 +47,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   }
 
   metadata = {
+    ssh-keys = "ubuntu:${var.ssh_public_key}"  # Adicionando a chave SSH
     startup-script = <<-EOF
       #!/bin/bash
       set -e
@@ -146,6 +147,7 @@ resource "google_compute_instance_template" "mongodb_template" {
       EOF
   }
 
+  # O resto do template permanece igual
   service_account {
     scopes = [
       "compute-ro",
