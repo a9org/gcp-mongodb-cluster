@@ -231,7 +231,7 @@ if [ "$INITIALIZED" = true ]; then
     "
     
     # Habilita autenticação após criar o usuário
-    sed -i 's/security:/security:\n  authorization: enabled/' /etc/mongod.conf
+    sed -i 's/authorization: disabled/authorization: enabled/' /etc/mongod.conf
     systemctl restart mongod
   fi
 else
