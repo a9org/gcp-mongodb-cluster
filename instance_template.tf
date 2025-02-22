@@ -130,6 +130,10 @@ net:
   bindIp: 0.0.0.0
 replication:
   replSetName: "rs0"
+security:
+  authorization: disabled
+setParameter:
+  maxIndexBuildMemoryUsageMegabytes: 1000
 EOL
 
 # Inicialização do MongoDB
@@ -138,40 +142,101 @@ systemctl enable mongod
 
 sleep 30
 
-# Inicializa o Replica Set
+# Obtém o nome da instância atual
 INSTANCE_NAME=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/name" -H "Metadata-Flavor: Google")
+INSTANCE_HOSTNAME=$(hostname -f)
 
-# Inicializa o Replica Set se for o primeiro node
-if [[ $INSTANCE_NAME == *"-0" ]]; then
+# Função para verificar se o ReplicaSet já está iniciado em algum nó
+check_replicaset_initialized() {
+  mongosh --eval "rs.status()" &>/dev/null
+  return $?
+}
+
+# Função para obter o status do ReplicaSet
+get_replicaset_status() {
+  echo $(mongosh --quiet --eval "rs.status().ok")
+}
+
+# Função para tentar inicializar o ReplicaSet
+try_initialize_replicaset() {
   mongosh --eval "
     rs.initiate({
       _id: 'rs0',
       members: [{
         _id: 0,
-        host: '$(hostname -f):27017',
+        host: '${INSTANCE_HOSTNAME}:27017',
         priority: 1
       }]
     })
   "
+}
 
-  sleep 30
-
-  mongosh admin --eval "
-    db.createUser({
-      user: 'admin',
-      pwd: '${random_password.mongodb.result}',
-      roles: ['root']
-    })
+# Função para tentar adicionar o nó ao ReplicaSet
+try_add_to_replicaset() {
+  local primary_host=$1
+  mongosh --host $primary_host --eval "
+    rs.add('${INSTANCE_HOSTNAME}:27017')
   "
-else
-  until mongosh --eval "rs.status()" &>/dev/null; do
+}
+
+# Tenta inicializar ou juntar-se ao ReplicaSet
+MAX_ATTEMPTS=30
+ATTEMPT=1
+INITIALIZED=false
+
+while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+  echo "Tentativa $ATTEMPT de configurar o ReplicaSet..."
+  
+  # Verifica se o ReplicaSet já está iniciado
+  if ! check_replicaset_initialized; then
+    echo "ReplicaSet não está iniciado. Tentando inicializar..."
+    try_initialize_replicaset
     sleep 10
-  done
+    
+    if [ "$(get_replicaset_status)" == "1" ]; then
+      echo "ReplicaSet inicializado com sucesso"
+      INITIALIZED=true
+      break
+    fi
+  else
+    echo "ReplicaSet já está iniciado. Tentando adicionar este nó..."
+    PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary" || echo "")
+    
+    if [ ! -z "$PRIMARY_HOST" ]; then
+      try_add_to_replicaset $PRIMARY_HOST
+      sleep 10
+      INITIALIZED=true
+      break
+    fi
+  fi
+  
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 10
+done
 
-  PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary")
-  mongosh --host $PRIMARY_HOST --eval "
-    rs.add('$(hostname -f):27017')
-  "
+if [ "$INITIALIZED" = true ]; then
+  echo "Nó configurado com sucesso no ReplicaSet"
+  
+  # Se este for o nó que inicializou o ReplicaSet, configura o usuário admin
+  if [ "$(mongosh --quiet --eval "rs.isMaster().ismaster")" == "true" ]; then
+    echo "Configurando usuário admin..."
+    sleep 30  # Aguarda a estabilização do ReplicaSet
+    
+    mongosh admin --eval "
+      db.createUser({
+        user: 'admin',
+        pwd: '${random_password.mongodb.result}',
+        roles: ['root']
+      })
+    "
+    
+    # Habilita autenticação após criar o usuário
+    sed -i 's/security:/security:\n  authorization: enabled/' /etc/mongod.conf
+    systemctl restart mongod
+  fi
+else
+  echo "Falha ao configurar o ReplicaSet após $MAX_ATTEMPTS tentativas"
+  exit 1
 fi
 
 # Configuração do logrotate
@@ -189,8 +254,7 @@ EOL
 # Log completion
 echo "Startup script completed successfully"
 EOF
-  }  
-  # O resto do template permanece igual
+  }
   service_account {
     scopes = [
       "compute-ro",
