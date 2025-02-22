@@ -1,6 +1,6 @@
 # Managed Instance Groups (MIG) for each shard
 resource "google_compute_region_instance_group_manager" "mongodb_shard" {
-  count = 3
+  count = var.is_cluster ? 3 : 1
   name  = "${local.prefix_name}-mongodb-shard-${count.index + 1}"
 
   base_instance_name = "${local.prefix_name}-mongodb-shard-${count.index + 1}"
@@ -10,7 +10,7 @@ resource "google_compute_region_instance_group_manager" "mongodb_shard" {
     instance_template = google_compute_instance_template.mongodb_template.id
   }
 
-  target_size = 3
+  target_size = var.is_cluster ? 3 : 1
 
   named_port {
     name = "mongodb"
