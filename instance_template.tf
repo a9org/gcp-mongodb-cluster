@@ -153,7 +153,6 @@ resource "google_compute_instance_template" "mongodb_template" {
     keyFile: /etc/mongodb-keyfile
     authorization: enabled
   EOL
-
   # Cria o arquivo de chave
   log "Criando keyfile..."
   echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
