@@ -181,17 +181,17 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   # Funções para configuração do ReplicaSet
   get_instance_metadata() {
-    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/$1" -H "Metadata-Flavor: Google"
+    curl -s "http://metadata.google.internal/computeMetadata/v1/\$1" -H "Metadata-Flavor: Google"
   }
 
   get_mig_instances() {
-    project=$(get_instance_metadata "project/project-id")
-    zone=$(get_instance_metadata "zone" | cut -d'/' -f4)
+    project=\$(get_instance_metadata "project/project-id")
+    zone=\$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
     mig_name="${local.prefix_name}-mongodb-nodes"
-    gcloud compute instance-groups managed list-instances "$mig_name" \
-      --zone="$zone" \
-      --project="$project" \
-      --format="value(instance)" || echo ""
+    gcloud compute instance-groups managed list-instances "\$mig_name" \
+        --zone="\$zone" \
+        --project="\$project" \
+        --format="value(instance)" || echo ""
   }
 
   is_primary() {
