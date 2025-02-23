@@ -263,17 +263,20 @@ if [ "$${INSTANCE_NAME}" = "$${OLDEST_INSTANCE}" ]; then
         else
             priority_config=", priority: 1"
         fi
-        MEMBERS="$${MEMBERS}{ _id: $i, host: '$${instance}:27017'$${priority_config} },"
+        MEMBERS="$${MEMBERS}{ _id: $i, host: '$${instance}:27017'$${priority_config} }"
+        if [ $i -lt $(($(echo "$${INSTANCES}" | wc -w) - 1)) ]; then
+            MEMBERS="$${MEMBERS},"
+        fi
         i=$((i + 1))
     done
     
-    # Remove a última vírgula e cria o JSON final
-    MEMBERS_CONFIG="[${MEMBERS%,}]"
+    # Cria o JSON final
+    MEMBERS_CONFIG="[$${MEMBERS}]"
     log "Configuração do ReplicaSet: $${MEMBERS_CONFIG}"
 
     # Inicializa o ReplicaSet
     mongosh --eval "rs.initiate({ _id: 'rs0', members: $${MEMBERS_CONFIG} })"
-    
+        
     # Aguarda o primário estar pronto
     for i in {1..60}; do
         if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
