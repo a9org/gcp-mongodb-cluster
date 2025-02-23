@@ -3,7 +3,7 @@ resource "google_compute_region_instance_group_manager" "mongodb_nodes" {
   name = "${local.prefix_name}-mongodb-nodes"
 
   base_instance_name = "${local.prefix_name}-mongodb-node"
-  region            = var.region
+  region             = var.region
 
   version {
     instance_template = google_compute_instance_template.mongodb_template.id
