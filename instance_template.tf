@@ -156,7 +156,7 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   # Cria o arquivo de chave
   log "Criando keyfile..."
-  echo "${random_password.mongodb_keyfile_content.result}" > /etc/mongodb-keyfile
+  echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
   chown mongodb:mongodb /etc/mongodb-keyfile
   # Inicia o MongoDB
