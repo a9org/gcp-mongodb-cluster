@@ -65,7 +65,7 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   metadata = {
     ssh-keys           = "ubuntu:${var.ssh_public_key}"
-    creation-timestamp = formatdate("YYYY-MM-DDTHH:MM:SSZ", timestamp())
+    creation-timestamp = formatdate("YYYY-MM-DDTHH:mm:ssZ", timestamp())
     startup-script     = <<-EOF
   #!/bin/bash
   set -e
