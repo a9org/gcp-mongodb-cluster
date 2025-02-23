@@ -257,7 +257,7 @@ systemLog:
   logAppend: true
 net:
   port: 27017
-  bindIp: ${var.subnetwork_cidr},127.0.0.1
+  bindIp: 0.0.0.0
 replication:
   replSetName: "rs0"
 security:
