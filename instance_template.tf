@@ -213,43 +213,43 @@ MONGO_ADMIN_PWD="${random_password.mongodb.result}"
 log "Senha do admin: $${MONGO_ADMIN_PWD}"
 
 # Obtém informações da instância atual
-INSTANCE_NAME=$$(hostname -f)
-log "Instância $${INSTANCE_NAME}
-CREATION_TIMESTAMP=$$(get_instance_metadata "instance/attributes/creation-timestamp")
-log "Instância $${INSTANCE_NAME} criada em $${CREATION_TIMESTAMP}"
+INSTANCE_NAME=$(hostname -f)
+log "Instância $INSTANCE_NAME
+CREATION_TIMESTAMP=$(get_instance_metadata "instance/attributes/creation-timestamp")
+log "Instância $INSTANCE_NAME criada em $${CREATION_TIMESTAMP"
 
 # Lista todas as instâncias do MIG
 log "Buscando instâncias do MIG..."
-INSTANCES=$$(get_mig_instances)
-if [ -z "$${INSTANCES}" ]; then
+INSTANCES=$(get_mig_instances)
+if [ -z "$INSTANCES" ]; then
     log "Erro: Não foi possível listar instâncias do MIG"
     exit 1
 fi
-log "Instâncias encontradas: $${INSTANCES}"
+log "Instâncias encontradas: $INSTANCES"
 
 # Determina a instância mais antiga (primário)
 OLDEST_INSTANCE=""
 OLDEST_TIMESTAMP="9999-12-31T23:59:59Z"
-for instance in $${INSTANCES}; do
-    instance_timestamp=$$(gcloud compute instances describe "$${instance}" \
-        --zone="$$(get_instance_metadata 'instance/zone' | cut -d'/' -f4)" \
+for instance in $INSTANCES; do
+    instance_timestamp=$(gcloud compute instances describe $instance \
+        --zone="$(get_instance_metadata 'instance/zone' | cut -d'/' -f4)" \
         --format="value(creationTimestamp)")
-    if [ -n "$${instance_timestamp}" ] && [[ "$${instance_timestamp}" < "$${OLDEST_TIMESTAMP}" ]]; then
-        OLDEST_TIMESTAMP="$${instance_timestamp}"
-        OLDEST_INSTANCE="$${instance}"
+    if [ -n "$instance_timestamp" ] && [[ "$instance_timestamp" < "$OLDEST_TIMESTAMP" ]]; then
+        OLDEST_TIMESTAMP="$instance_timestamp"
+        OLDEST_INSTANCE="$instance"
     fi
 done
 
-if [ -z "$${OLDEST_INSTANCE}" ]; then
+if [ -z "$OLDEST_INSTANCE" ]; then
     log "Erro: Não foi possível determinar a instância mais antiga"
     exit 1
 fi
-log "Instância mais antiga (primário): $${OLDEST_INSTANCE}"
+log "Instância mais antiga (primário): $OLDEST_INSTANCE"
 
 # Adiciona um atraso aleatório para evitar condições de corrida
 sleep $$(( RANDOM % 10 ))
 
-if [ "$${INSTANCE_NAME}" = "$${OLDEST_INSTANCE}" ]; then
+if [ "$INSTANCE_NAME}" = "$OLDEST_INSTANCE" ]; then
     log "Esta é a instância mais antiga. Iniciando ReplicaSet como primário..."
     
     # Inicializa o ReplicaSet com todas as instâncias
@@ -258,7 +258,7 @@ if [ "$${INSTANCE_NAME}" = "$${OLDEST_INSTANCE}" ]; then
         members: ['
     
     i=0
-    for instance in $${INSTANCES}; do
+    for instance in $INSTANCES; do
         if [ $i -gt 0 ]; then
             rs_config="$${rs_config},"
         fi
