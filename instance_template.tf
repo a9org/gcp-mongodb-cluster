@@ -93,12 +93,22 @@
       gcloud compute instance-groups managed list-instances "$mig_name" \
           --zone="$zone" \
           --project="$project" \
-          --format="value(instance)" || echo ""
+          --format="value(name)" || echo ""
   }
 
   is_primary() {
       mongosh -u "$MONGO_ADMIN_USER" -p "$MONGO_ADMIN_PWD" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
   }
+
+  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+  sudo apt-get update
+  sudo apt-get install -y google-cloud-sdk
+
+  project=$(get_instance_metadata "project/project-id")
+  zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
+  gcloud config set project "$project"
+  gcloud config set zone "$zone"
 
   # Instalação do MongoDB 6.0
   wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
@@ -215,8 +225,8 @@
   # Obtém informações da instância atual
   INSTANCE_NAME=$(hostname -f)
   log "Instância $INSTANCE_NAME"
-  CREATION_TIMESTAMP=$(get_instance_metadata "instance/attributes/creation-timestamp")
-  log "Instância $INSTANCE_NAME criada em $${CREATION_TIMESTAMP"
+  CREATION_TIMESTAMP=$(get_instance_metadata "instance/creation-timestamp")
+  log "Instância \$INSTANCE_NAME criada em \$${CREATION_TIMESTAMP}"
 
   # Lista todas as instâncias do MIG
   log "Buscando instâncias do MIG..."
@@ -249,32 +259,29 @@
   # Adiciona um atraso aleatório para evitar condições de corrida
   sleep $$(( RANDOM % 10 ))
 
-  if [ "$INSTANCE_NAME" = "$OLDEST_INSTANCE" ]; then
-      log "Esta é a instância mais antiga. Iniciando ReplicaSet como primário..."
-      
-      # Inicializa o ReplicaSet com todas as instâncias
-      rs_config='{
-          _id: "rs0",
-          members: ['
-      
-      i=0
-      for instance in $INSTANCES; do
-          if [ $i -gt 0 ]; then
-              rs_config="$${rs_config},"
-          fi
-          if [ $i -eq 0 ]; then
-              rs_config="$${rs_config}{_id: $${i}, host: '$${instance}:27017', priority: 2}"
-          else
-              rs_config="$${rs_config}{_id: $${i}, host: '$${instance}:27017', priority: 1}"
-          fi
-          i=$((i + 1))
-      done
-      
-      rs_config="$${rs_config}]}"
-      
-      log "Configuração do ReplicaSet: $${rs_config}"
-      mongosh --eval "$${rs_config}" --quiet
-      
+if [ "$INSTANCE_NAME" = "$OLDEST_INSTANCE" ]; then
+    log "Esta é a instância mais antiga. Iniciando ReplicaSet como primário..."
+    
+    rs_config='{"_id": "rs0", "members": ['
+    
+    i=0
+    for instance in $INSTANCES; do
+        if [ $i -gt 0 ]; then
+            rs_config="${rs_config},"
+        fi
+        if [ $i -eq 0 ]; then
+            rs_config="${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 2}"
+        else
+            rs_config="${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 1}"
+        fi
+        i=$((i + 1))
+    done
+    
+    rs_config="${rs_config}]}"
+    
+    log "Configuração do ReplicaSet: ${rs_config}"
+    mongosh --eval "rs.initiate(${rs_config})" --quiet
+
       # Aguarda o primário estar pronto
       for i in {1..60}; do
           if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
