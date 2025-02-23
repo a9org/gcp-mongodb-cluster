@@ -151,9 +151,9 @@ resource "google_compute_instance_template" "mongodb_template" {
   EOL
 
   # Cria o arquivo de chave
-  echo "${file("${path.module}/mongodb-keyfile")}" > /etc/mongodb-keyfile
+  echo "${local_file.mongodb_keyfile.content}" > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
-
+  
   # Inicialização do MongoDB
   systemctl start mongod
   systemctl enable mongod
