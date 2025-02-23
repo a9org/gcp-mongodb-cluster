@@ -267,56 +267,56 @@ if [ "$INSTANCE_NAME" = "$OLDEST_INSTANCE" ]; then
     i=0
     for instance in $INSTANCES; do
         if [ $i -gt 0 ]; then
-            rs_config="${rs_config},"
+            rs_config="$${rs_config},"
         fi
         if [ $i -eq 0 ]; then
-            rs_config="${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 2}"
+            rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 2}"
         else
-            rs_config="${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 1}"
+            rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 1}"
         fi
         i=$((i + 1))
     done
     
-    rs_config="${rs_config}]}"
+    rs_config="$${rs_config}]}"
     
-    log "Configuração do ReplicaSet: ${rs_config}"
-    mongosh --eval "rs.initiate(${rs_config})" --quiet
+    log "Configuração do ReplicaSet: $${rs_config}"
+    mongosh --eval "rs.initiate($${rs_config})" --quiet
 
-      # Aguarda o primário estar pronto
-      for i in {1..60}; do
-          if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
-              log "ReplicaSet iniciado com sucesso"
-              mongosh admin --eval "db.createUser({user: '$${MONGO_ADMIN_USER}', pwd: '$${MONGO_ADMIN_PWD}', roles: ['root']})"
-              log "Usuário admin criado"
-              break
-          fi
-          log "Aguardando primário... tentativa $${i}"
-          sleep 5
-      done
-  else
-      log "Esta não é a instância mais antiga. Tentando se juntar ao ReplicaSet..."
-      
-      # Aguarda o primário estar disponível
-      for i in {1..120}; do
-          if mongosh --host "$${OLDEST_INSTANCE}" \
-            -u "$${MONGO_ADMIN_USER}" \
-            -p "$${MONGO_ADMIN_PWD}" \
-            --authenticationDatabase admin \
-            --quiet \
-            --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
-              
-              log "Primário encontrado em $${OLDEST_INSTANCE}. Adicionando esta instância..."
-              mongosh --host "$${OLDEST_INSTANCE}" \
-                    -u "$${MONGO_ADMIN_USER}" \
-                    -p "$${MONGO_ADMIN_PWD}" \
-                    --authenticationDatabase admin \
-                    --eval "rs.add('$${INSTANCE_NAME}:27017')"
-              break
-          fi
-          log "Aguardando primário em $${OLDEST_INSTANCE}... tentativa $${i}"
-          sleep 5
-      done
-  fi
+    # Aguarda o primário estar pronto
+    for i in {1..60}; do
+        if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
+            log "ReplicaSet iniciado com sucesso"
+            mongosh admin --eval "db.createUser({user: '$${MONGO_ADMIN_USER}', pwd: '$${MONGO_ADMIN_PWD}', roles: ['root']})"
+            log "Usuário admin criado"
+            break
+        fi
+        log "Aguardando primário... tentativa $${i}"
+        sleep 5
+    done
+else
+    log "Esta não é a instância mais antiga. Tentando se juntar ao ReplicaSet..."
+    
+    # Aguarda o primário estar disponível
+    for i in {1..120}; do
+        if mongosh --host "$${OLDEST_INSTANCE}" \
+          -u "$${MONGO_ADMIN_USER}" \
+          -p "$${MONGO_ADMIN_PWD}" \
+          --authenticationDatabase admin \
+          --quiet \
+          --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
+          
+          log "Primário encontrado em $${OLDEST_INSTANCE}. Adicionando esta instância..."
+          mongosh --host "$${OLDEST_INSTANCE}" \
+                -u "$${MONGO_ADMIN_USER}" \
+                -p "$${MONGO_ADMIN_PWD}" \
+                --authenticationDatabase admin \
+                --eval "rs.add('$${INSTANCE_NAME}:27017')"
+          break
+        fi
+        log "Aguardando primário em $${OLDEST_INSTANCE}... tentativa $${i}"
+        sleep 5
+    done
+fi
 
   log "Verificando status do ReplicaSet..."
   mongosh -u "$${MONGO_ADMIN_USER}" \
