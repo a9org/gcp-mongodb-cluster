@@ -69,6 +69,7 @@ resource "google_compute_instance_template" "mongodb_template" {
     startup-script     = <<-EOF
   #!/bin/bash
   set -e
+  set -x  # Ativar depuração para rastrear execução
 
   # Funções utilitárias
   log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/mongodb/startup.log; echo "$1"; }
@@ -180,7 +181,7 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   # Definir variáveis de autenticação
   MONGO_ADMIN_USER="admin"
-  MONGO_ADMIN_PWD="${random_password.mongodb.result}"
+  MONGO_ADMIN_PWD=$(printf '%q' "${random_password.mongodb.result}")
 
   # Funções para configuração do ReplicaSet
   get_instance_metadata() {
