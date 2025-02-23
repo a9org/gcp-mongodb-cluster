@@ -64,8 +64,9 @@ resource "google_compute_instance_template" "mongodb_template" {
   }
 
   metadata = {
-    ssh-keys       = "ubuntu:${var.ssh_public_key}"
-    startup-script = <<-EOF
+    ssh-keys           = "ubuntu:${var.ssh_public_key}"
+    creation-timestamp = formatdate("YYYY-MM-DDTHH:MM:SSZ", timestamp())
+    startup-script     = <<-EOF
   #!/bin/bash
   set -e
 
@@ -217,7 +218,7 @@ resource "google_compute_instance_template" "mongodb_template" {
     
     # Lista as instâncias do MIG
     instances=$(gcloud compute instance-groups managed list-instances $mig_name \
-      --zone=$zone \
+      --region=us-central1 \
       --project=$project \
       --format="value(instance.scope(instances))")
     
