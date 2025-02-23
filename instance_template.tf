@@ -65,7 +65,7 @@
 
     metadata = {
       ssh-keys           = "ubuntu:${var.ssh_public_key}"
-      creation-timestamp = formatdate("YYYY-MM-DD'T'HH:mm:ssZ", timestamp())
+      prefix_name        = local.prefix_name  # Passar prefix_name como metadado
       startup-script     = <<-EOF
   #!/bin/bash
   set -e
@@ -78,37 +78,8 @@
   }
 
   get_instance_metadata() {
-      metadata_path=$${1}
-      curl -s "http://metadata.google.internal/computeMetadata/v1/$${metadata_path}" -H "Metadata-Flavor: Google"
+      curl -s "http://metadata.google.internal/computeMetadata/v1/$${1}" -H "Metadata-Flavor: Google"
   }
-  get_mig_instances() {
-      local project
-      local zone
-      local mig_name
-      
-      project=$(get_instance_metadata "project/project-id")
-      zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
-      mig_name="${local.prefix_name}-mongodb-nodes"
-      
-      gcloud compute instance-groups managed list-instances "$mig_name" \
-          --zone="$zone" \
-          --project="$project" \
-          --format="value(name)" || echo ""
-  }
-
-  is_primary() {
-      mongosh -u "$MONGO_ADMIN_USER" -p "$MONGO_ADMIN_PWD" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
-  }
-
-  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
-  curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
-  sudo apt-get update
-  sudo apt-get install -y google-cloud-sdk
-
-  project=$(get_instance_metadata "project/project-id")
-  zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
-  gcloud config set project "$project"
-  gcloud config set zone "$zone"
 
   # Instalação do MongoDB 6.0
   wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
@@ -170,8 +141,7 @@
   chmod 755 /data/mongodb
   chmod 755 /var/log/mongodb
 
-  # Configuração do MongoDB
-  log "Criando configuração do MongoDB..."
+# Configuração do MongoDB
   cat > /etc/mongod.conf <<EOL
   storage:
     dbPath: /data/mongodb
@@ -192,140 +162,106 @@
   EOL
 
   # Cria o arquivo de chave
-  log "Criando keyfile..."
   echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
   chown mongodb:mongodb /etc/mongodb-keyfile
 
   # Inicia o MongoDB
-  log "Iniciando MongoDB..."
   systemctl start mongod
   systemctl enable mongod
 
-  # Aguarda o MongoDB iniciar (sem autenticação ainda)
-  log "Aguardando MongoDB iniciar..."
+  # Aguarda o MongoDB iniciar
   for i in {1..30}; do
     if mongosh --quiet --eval "db.adminCommand('ping')" &>/dev/null; then
       log "MongoDB iniciado com sucesso"
       break
     fi
-    log "Tentativa \$i: Aguardando MongoDB..."
     sleep 5
   done
-
-  # Verifica o status do serviço para depuração
-  log "Status do serviço MongoDB:"
-  systemctl status mongod >> /var/log/mongodb/startup.log 2>&1
 
   # Definir variáveis de autenticação
   MONGO_ADMIN_USER="admin"
   MONGO_ADMIN_PWD="${random_password.mongodb.result}"
-  log "Senha do admin: $${MONGO_ADMIN_PWD}"
 
-  # Obtém informações da instância atual
+  # Obter informações da instância e do MIG
   INSTANCE_NAME=$(hostname -f)
-  log "Instância $INSTANCE_NAME"
-  CREATION_TIMESTAMP=$(get_instance_metadata "instance/creation-timestamp")
-  log "Instância \$INSTANCE_NAME criada em \$${CREATION_TIMESTAMP}"
+  prefix_name=$(get_instance_metadata "prefix_name")
+  project=$(get_instance_metadata "project/project-id")
+  zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
+  mig_name="$${prefix_name}-mongodb-nodes"
 
-  # Lista todas as instâncias do MIG
-  log "Buscando instâncias do MIG..."
-  INSTANCES=$(get_mig_instances)
-  if [ -z "$INSTANCES" ]; then
-      log "Erro: Não foi possível listar instâncias do MIG"
-      exit 1
-  fi
+  # Configurar o gcloud
+  gcloud config set project "$project"
+  gcloud config set compute/zone "$zone"
+
+  # Listar todas as instâncias do MIG
+  INSTANCES=$(gcloud compute instance-groups managed list-instances "$mig_name" \
+              --region="${var.region}" \
+              --format="value(name)" | sort)
   log "Instâncias encontradas: $INSTANCES"
 
-  # Determina a instância mais antiga (primário)
-  OLDEST_INSTANCE=""
-  OLDEST_TIMESTAMP="9999-12-31T23:59:59Z"
-  for instance in $INSTANCES; do
-      instance_timestamp=$(gcloud compute instances describe $instance \
-          --zone="$(get_instance_metadata 'instance/zone' | cut -d'/' -f4)" \
-          --format="value(creationTimestamp)")
-      if [ -n "$instance_timestamp" ] && [[ "$instance_timestamp" < "$OLDEST_TIMESTAMP" ]]; then
-          OLDEST_TIMESTAMP="$instance_timestamp"
-          OLDEST_INSTANCE="$instance"
-      fi
-  done
+  # Determinar o primário (menor hostname alfanumérico)
+  PRIMARY_INSTANCE=$(echo "$INSTANCES" | head -n 1)
+  log "Instância primária: $PRIMARY_INSTANCE"
 
-  if [ -z "$OLDEST_INSTANCE" ]; then
-      log "Erro: Não foi possível determinar a instância mais antiga"
-      exit 1
-  fi
-  log "Instância mais antiga (primário): $OLDEST_INSTANCE"
+  if [ "$INSTANCE_NAME" = "$PRIMARY_INSTANCE" ]; then
+    log "Esta é a instância primária. Iniciando ReplicaSet..."
 
-  # Adiciona um atraso aleatório para evitar condições de corrida
-  sleep $$(( RANDOM % 10 ))
-
-if [ "$INSTANCE_NAME" = "$OLDEST_INSTANCE" ]; then
-    log "Esta é a instância mais antiga. Iniciando ReplicaSet como primário..."
-    
+    # Construir configuração do ReplicaSet
     rs_config='{"_id": "rs0", "members": ['
-    
     i=0
     for instance in $INSTANCES; do
-        if [ $i -gt 0 ]; then
-            rs_config="$${rs_config},"
-        fi
-        if [ $i -eq 0 ]; then
-            rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 2}"
-        else
-            rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 1}"
-        fi
-        i=$((i + 1))
+      if [ $i -gt 0 ]; then
+        rs_config="$${rs_config},"
+      fi
+      if [ "$instance" = "$PRIMARY_INSTANCE" ]; then
+        rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 2}"
+      else
+        rs_config="$${rs_config}{\"_id\": $i, \"host\": \"$instance:27017\", \"priority\": 1}"
+      fi
+      i=$((i + 1))
     done
-    
     rs_config="$${rs_config}]}"
-    
+
     log "Configuração do ReplicaSet: $${rs_config}"
     mongosh --eval "rs.initiate($${rs_config})" --quiet
 
-    # Aguarda o primário estar pronto
+    # Aguarda o primário estar pronto e cria usuário admin
     for i in {1..60}; do
-        if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
-            log "ReplicaSet iniciado com sucesso"
-            mongosh admin --eval "db.createUser({user: '$${MONGO_ADMIN_USER}', pwd: '$${MONGO_ADMIN_PWD}', roles: ['root']})"
-            log "Usuário admin criado"
-            break
-        fi
-        log "Aguardando primário... tentativa $${i}"
-        sleep 5
+      if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
+        log "ReplicaSet iniciado com sucesso"
+        mongosh admin --eval "db.createUser({user: '$${MONGO_ADMIN_USER}', pwd: '$${MONGO_ADMIN_PWD}', roles: ['root']})"
+        log "Usuário admin criado"
+        break
+      fi
+      sleep 5
     done
-else
-    log "Esta não é a instância mais antiga. Tentando se juntar ao ReplicaSet..."
-    
+  else
+    log "Esta é uma instância secundária. Tentando se juntar ao ReplicaSet..."
+
     # Aguarda o primário estar disponível
     for i in {1..120}; do
-        if mongosh --host "$${OLDEST_INSTANCE}" \
-          -u "$${MONGO_ADMIN_USER}" \
-          -p "$${MONGO_ADMIN_PWD}" \
-          --authenticationDatabase admin \
-          --quiet \
-          --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
-          
-          log "Primário encontrado em $${OLDEST_INSTANCE}. Adicionando esta instância..."
-          mongosh --host "$${OLDEST_INSTANCE}" \
-                -u "$${MONGO_ADMIN_USER}" \
-                -p "$${MONGO_ADMIN_PWD}" \
-                --authenticationDatabase admin \
-                --eval "rs.add('$${INSTANCE_NAME}:27017')"
-          break
-        fi
-        log "Aguardando primário em $${OLDEST_INSTANCE}... tentativa $${i}"
-        sleep 5
-    done
-fi
-
-  log "Verificando status do ReplicaSet..."
-  mongosh -u "$${MONGO_ADMIN_USER}" \
+      if mongosh --host "$PRIMARY_INSTANCE" \
+        -u "$${MONGO_ADMIN_USER}" \
         -p "$${MONGO_ADMIN_PWD}" \
         --authenticationDatabase admin \
-        --eval "rs.status()" >> /var/log/mongodb/startup.log 2>&1
+        --quiet \
+        --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
+        
+        log "Primário encontrado em $PRIMARY_INSTANCE. Adicionando esta instância..."
+        mongosh --host "$PRIMARY_INSTANCE" \
+              -u "$${MONGO_ADMIN_USER}" \
+              -p "$${MONGO_ADMIN_PWD}" \
+              --authenticationDatabase admin \
+              --eval "rs.add('$${INSTANCE_NAME}:27017')"
+        break
+      fi
+      sleep 5
+    done
+  fi
 
   log "Configuração concluída com sucesso"
-    EOF
+  EOF
     }
     service_account {
       scopes = [
