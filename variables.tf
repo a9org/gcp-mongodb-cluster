@@ -49,7 +49,7 @@ variable "mongodb_data_disk_size" {
 variable "mongodb_logs_disk_size" {
   description = "Size of the MongoDB logs disk in GB"
   type        = number
-  default     = 50
+  default     = 10
 }
 
 variable "replica_count" {
