@@ -5,16 +5,20 @@ resource "random_password" "mongodb" {
   override_special = "&8h8a9QogDb3y"
 }
 
-# Random MongoDB KeyFile
+# Random MongoDB KeyFile com caracteres válidos
 resource "random_password" "mongodb_keyfile_content" {
-  length           = 741
+  length           = 756  # Tamanho recomendado pelo MongoDB
   special          = true
-  override_special = "!@#$%&*()-_=+[]{}<>:?"
+  override_special = "=+.-_" # Apenas caracteres especiais aceitos pelo MongoDB
+  min_lower        = 10
+  min_upper        = 10
+  min_numeric      = 10
+  min_special      = 4
 }
 
 # Local KeyFile
 resource "local_file" "mongodb_keyfile" {
-  content  = random_password.mongodb_keyfile_content.result
+  content  = base64encode(random_password.mongodb_keyfile_content.result)
   filename = "${path.module}/mongodb-keyfile"
 }
 
@@ -96,10 +100,19 @@ metadata = {
     maxIndexBuildMemoryUsageMegabytes: 1000
   EOL
 
-  # Cria o arquivo de chave
-  echo "${local_file.mongodb_keyfile.content}" > /etc/mongodb-keyfile
+  # Cria o arquivo de chave com conteúdo base64
+  echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
   chown mongodb:mongodb /etc/mongodb-keyfile
+
+  # Verificação do keyfile
+  if [ ! -s /etc/mongodb-keyfile ]; then
+    echo "ERRO: Arquivo keyfile está vazio!"
+    exit 1
+  fi
+
+  echo "KeyFile criado com sucesso"
+  ls -l /etc/mongodb-keyfile
   
   # Reinicia o MongoDB e verifica o status
   systemctl stop mongod || true
