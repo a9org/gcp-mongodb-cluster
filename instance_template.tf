@@ -78,10 +78,9 @@ log() {
 }
 
 get_instance_metadata() {
-    local path="$1"
-    curl -s "http://metadata.google.internal/computeMetadata/v1/$path" -H "Metadata-Flavor: Google"
+    metadata_path=$${1}
+    curl -s "http://metadata.google.internal/computeMetadata/v1/$${metadata_path}" -H "Metadata-Flavor: Google"
 }
-
 get_mig_instances() {
     local project
     local zone
@@ -215,6 +214,7 @@ log "Senha do admin: $${MONGO_ADMIN_PWD}"
 
 # Obtém informações da instância atual
 INSTANCE_NAME=$$(hostname -f)
+log "Instância $${INSTANCE_NAME}
 CREATION_TIMESTAMP=$$(get_instance_metadata "instance/attributes/creation-timestamp")
 log "Instância $${INSTANCE_NAME} criada em $${CREATION_TIMESTAMP}"
 
