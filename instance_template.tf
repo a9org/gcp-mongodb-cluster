@@ -7,7 +7,7 @@ resource "random_password" "mongodb" {
 
 # Random MongoDB KeyFile com caracteres válidos
 resource "random_password" "mongodb_keyfile_content" {
-  length           = 756  # Tamanho recomendado pelo MongoDB
+  length           = 756 # Tamanho recomendado pelo MongoDB
   special          = true
   override_special = "=+.-_" # Apenas caracteres especiais aceitos pelo MongoDB
   min_lower        = 10
@@ -63,9 +63,9 @@ resource "google_compute_instance_template" "mongodb_template" {
     subnetwork = var.subnetwork
   }
 
-metadata = {
-  ssh-keys       = "ubuntu:${var.ssh_public_key}"
-  startup-script = <<-EOF
+  metadata = {
+    ssh-keys       = "ubuntu:${var.ssh_public_key}"
+    startup-script = <<-EOF
   #!/bin/bash
   set -e
 
@@ -204,92 +204,113 @@ metadata = {
     exit 1
   fi
 
-  # Obtém o nome da instância atual
-  INSTANCE_NAME=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/name" -H "Metadata-Flavor: Google")
-  INSTANCE_HOSTNAME=$(hostname -f)
-
-  # Função para verificar se o ReplicaSet já está iniciado em algum nó
-  check_replicaset_initialized() {
-    mongosh --quiet --eval "rs.status()" &>/dev/null
-    return $?
+  # Função para obter o timestamp de criação da instância
+  get_instance_creation_timestamp() {
+    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/creation-timestamp" -H "Metadata-Flavor: Google"
   }
 
-  # Função para obter o status do ReplicaSet
-  get_replicaset_status() {
-    mongosh --quiet --eval "rs.status().ok" || echo "0"
-  }
-
-  # Função para tentar inicializar o ReplicaSet
-  try_initialize_replicaset() {
-    mongosh --eval "
-      rs.initiate({
-        _id: 'rs0',
-        members: [{
-          _id: 0,
-          host: '$(hostname -f):27017',
-          priority: 1
-        }]
-      })
-    " || return 1
-  }
-
-  # Função para tentar adicionar o nó ao ReplicaSet
-  try_add_to_replicaset() {
-    local primary_host=$1
-    mongosh --host $primary_host --eval "
-      rs.add('$(hostname -f):27017')
-    " || return 1
-  }
-
-  # Tenta inicializar ou juntar-se ao ReplicaSet
-  MAX_ATTEMPTS=30
-  ATTEMPT=1
-  INITIALIZED=false
-
-  while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    echo "Tentativa $ATTEMPT de configurar o ReplicaSet..."
+  # Função para encontrar outras instâncias do MIG
+  find_mig_instances() {
+    local project=$(curl -s "http://metadata.google.internal/computeMetadata/v1/project/project-id" -H "Metadata-Flavor: Google")
+    local zone=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d/ -f4)
+    local mig_name="${local.prefix_name}-mongodb-nodes"
     
-    # Verifica se o ReplicaSet já está iniciado
-    if ! check_replicaset_initialized; then
-      echo "ReplicaSet não está iniciado. Tentando inicializar..."
-      if try_initialize_replicaset; then
-        sleep 10
-        
-        if [ "$(get_replicaset_status)" == "1" ]; then
-          echo "ReplicaSet inicializado com sucesso"
-          INITIALIZED=true
-          break
-        fi
-      else
-        echo "Falha ao inicializar ReplicaSet"
-      fi
-    else
-      echo "ReplicaSet já está iniciado. Tentando adicionar este nó..."
-      PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary" || echo "")
+    # Lista as instâncias do MIG
+    instances=$(gcloud compute instance-groups managed list-instances $mig_name \
+      --zone=$zone \
+      --project=$project \
+      --format="value(instance.scope(instances))")
+    
+    echo "$instances"
+  }
+
+  # Função para encontrar o primário existente
+  find_primary() {
+    local max_attempts=10
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+      echo "Tentativa $attempt de encontrar primário existente..."
       
-      if [ ! -z "$PRIMARY_HOST" ]; then
-        if try_add_to_replicaset $PRIMARY_HOST; then
-          sleep 10
-          INITIALIZED=true
-          break
-        else
-          echo "Falha ao adicionar nó ao ReplicaSet"
+      # Obter lista de instâncias do MIG
+      local instances=$(find_mig_instances)
+      
+      for instance in $instances; do
+        echo "Verificando $instance..."
+        
+        # Tenta conectar em cada instância
+        if mongosh --host $instance --eval "rs.isMaster()" --quiet 2>/dev/null | grep -q '"ismaster" : true'; then
+          echo "Primário encontrado: $instance"
+          echo $instance
+          return 0
         fi
-      fi
-    fi
+      done
+      
+      attempt=$((attempt + 1))
+      sleep 10
+    done
     
-    echo "Tentativa $ATTEMPT falhou. Aguardando próxima tentativa..."
-    ATTEMPT=$((ATTEMPT + 1))
-    sleep 10
-  done
+    echo ""
+    return 1
+  }
 
-  if [ "$INITIALIZED" = true ]; then
-    echo "Nó configurado com sucesso no ReplicaSet"
+  # Obtém o timestamp de criação desta instância
+  CREATION_TIMESTAMP=$(get_instance_creation_timestamp)
+  INSTANCE_NAME=$(hostname)
+  echo "Esta instância ($INSTANCE_NAME) foi criada em: $CREATION_TIMESTAMP"
+
+  # Aguarda um tempo aleatório entre 0-30 segundos para evitar corrida
+  sleep $((RANDOM % 30))
+
+  # Verifica se já existe um primário
+  PRIMARY_HOST=$(find_primary)
+
+  if [ -z "$PRIMARY_HOST" ]; then
+    echo "Nenhum primário encontrado. Verificando se esta instância deve inicializar..."
     
-    # Se este for o nó que inicializou o ReplicaSet, configura o usuário admin
-    if [ "$(mongosh --quiet --eval "rs.isMaster().ismaster" || echo "false")" == "true" ]; then
+    # Lista todas as instâncias e seus timestamps
+    instances=$(find_mig_instances)
+    oldest_instance=""
+    oldest_timestamp="999999999999999999"
+    
+    for instance in $instances; do
+      instance_timestamp=$(gcloud compute instances describe $instance --format="value(creationTimestamp)")
+      if [[ $instance_timestamp < $oldest_timestamp ]]; then
+        oldest_timestamp=$instance_timestamp
+        oldest_instance=$instance
+      fi
+    done
+    
+    # Se esta for a instância mais antiga, inicializa o ReplicaSet
+    if [[ "$INSTANCE_NAME" == "$oldest_instance" ]]; then
+      echo "Esta é a instância mais antiga. Iniciando novo ReplicaSet..."
+      
+      # Inicializa o ReplicaSet
+      mongosh --eval "
+        rs.initiate({
+          _id: 'rs0',
+          members: [
+            { _id: 0, host: '$(hostname -f):27017', priority: 2 }
+          ]
+        })
+      "
+      
+      # Aguarda o ReplicaSet inicializar
+      MAX_WAIT=60
+      WAIT_COUNT=0
+      while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        if mongosh --eval "rs.status()" --quiet | grep -q '"stateStr" : "PRIMARY"'; then
+          echo "ReplicaSet inicializado com sucesso"
+          break
+        fi
+        echo "Aguardando ReplicaSet inicializar..."
+        sleep 5
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+      done
+
+      # Configura o usuário admin no primário
       echo "Configurando usuário admin..."
-      sleep 30  # Aguarda a estabilização do ReplicaSet
+      sleep 10  # Aguarda estabilização
       
       mongosh admin --eval "
         db.createUser({
@@ -298,25 +319,30 @@ metadata = {
           roles: ['root']
         })
       "
-      
-      # Habilita autenticação após criar o usuário
-      sed -i 's/authorization: disabled/authorization: enabled/' /etc/mongod.conf
-      systemctl restart mongod
+    else
+      echo "Esta não é a instância mais antiga. Aguardando..."
+      exit 1
     fi
   else
-    echo "Falha ao configurar o ReplicaSet após $MAX_ATTEMPTS tentativas"
-    echo "=== Status do MongoDB ==="
-    systemctl status mongod
-    echo "=== Últimas 20 linhas do log ==="
-    tail -n 20 /var/log/mongodb/mongod.log
-    exit 1
+    echo "Primário encontrado em $PRIMARY_HOST. Adicionando esta instância ao ReplicaSet..."
+    
+    # Tenta adicionar este nó ao ReplicaSet
+    mongosh --host $PRIMARY_HOST --eval "
+      rs.add('$(hostname -f):27017')
+    "
   fi
+
+  # Aguarda a configuração ser aplicada
+  sleep 30
+
+  # Verifica o status final
+  echo "Status final do ReplicaSet:"
+  mongosh --eval "rs.status()"
 
   # Log completion
   echo "Startup script completed successfully"
   EOF
-}
-
+  }
   service_account {
     scopes = [
       "compute-ro",
