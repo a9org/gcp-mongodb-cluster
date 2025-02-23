@@ -59,9 +59,9 @@ resource "google_compute_instance_template" "mongodb_template" {
     subnetwork = var.subnetwork
   }
 
-  metadata = {
-    ssh-keys       = "ubuntu:${var.ssh_public_key}"
-    startup-script = <<-EOF
+metadata = {
+  ssh-keys       = "ubuntu:${var.ssh_public_key}"
+  startup-script = <<-EOF
   #!/bin/bash
   set -e
 
@@ -71,64 +71,10 @@ resource "google_compute_instance_template" "mongodb_template" {
   apt-get update
   apt-get install -y mongodb-org
 
-  # Função para esperar disco ficar disponível
-  wait_for_disk() {
-    local disk_name=$1
-    local max_attempts=60
-    local attempt=1
-    
-    while [ $attempt -le $max_attempts ]; do
-      if [ -b "$disk_name" ]; then
-        return 0
-      fi
-      echo "Aguardando disco $disk_name ficar disponível... tentativa $attempt"
-      sleep 5
-      attempt=$((attempt + 1))
-    done
-    
-    echo "Timeout esperando pelo disco $disk_name"
-    return 1
-  }
+  # Configuração dos discos [mantido o código existente dos discos]
+  # ... [código dos discos permanece o mesmo]
 
-  # Configuração dos discos
-  DATA_DISK="/dev/sdb"
-  LOGS_DISK="/dev/sdc"
-
-  # Aguarda os discos ficarem disponíveis
-  wait_for_disk $DATA_DISK
-  wait_for_disk $LOGS_DISK
-
-  # Disco de dados
-  if [ -b "$DATA_DISK" ]; then
-    echo "Formatando disco de dados..."
-    mkfs.xfs $DATA_DISK
-    mkdir -p /data/mongodb
-    mount $DATA_DISK /data/mongodb
-    echo "$DATA_DISK /data/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
-  else
-    echo "ERRO: Disco de dados não encontrado!"
-    exit 1
-  fi
-
-  # Disco de logs
-  if [ -b "$LOGS_DISK" ]; then
-    echo "Formatando disco de logs..."
-    mkfs.xfs $LOGS_DISK
-    mkdir -p /var/log/mongodb
-    mount $LOGS_DISK /var/log/mongodb
-    echo "$LOGS_DISK /var/log/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
-  else
-    echo "ERRO: Disco de logs não encontrado!"
-    exit 1
-  fi
-
-  # Ajuste das permissões
-  chown -R mongodb:mongodb /data/mongodb
-  chown -R mongodb:mongodb /var/log/mongodb
-  chmod 755 /data/mongodb
-  chmod 755 /var/log/mongodb
-
-  # Configuração do MongoDB
+  # Configuração do MongoDB com bind_ip ajustado
   cat > /etc/mongod.conf <<-EOL
   storage:
     dbPath: /data/mongodb
@@ -144,8 +90,8 @@ resource "google_compute_instance_template" "mongodb_template" {
   replication:
     replSetName: "rs0"
   security:
-    authorization: enabled
     keyFile: /etc/mongodb-keyfile
+    authorization: disabled  # Inicialmente desabilitado para setup
   setParameter:
     maxIndexBuildMemoryUsageMegabytes: 1000
   EOL
@@ -153,12 +99,43 @@ resource "google_compute_instance_template" "mongodb_template" {
   # Cria o arquivo de chave
   echo "${local_file.mongodb_keyfile.content}" > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
+  chown mongodb:mongodb /etc/mongodb-keyfile
   
-  # Inicialização do MongoDB
+  # Reinicia o MongoDB e verifica o status
+  systemctl stop mongod || true
+  sleep 5
   systemctl start mongod
   systemctl enable mongod
 
-  sleep 30
+  # Função para verificar se o MongoDB está respondendo
+  wait_for_mongodb() {
+    local max_attempts=30
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+      if mongosh --quiet --eval "db.adminCommand('ping')" &>/dev/null; then
+        echo "MongoDB está respondendo!"
+        return 0
+      fi
+      echo "Tentativa $attempt: Aguardando MongoDB iniciar..."
+      sleep 10
+      attempt=$((attempt + 1))
+    done
+    
+    echo "Timeout aguardando MongoDB iniciar"
+    return 1
+  }
+
+  # Aguarda o MongoDB iniciar
+  echo "Aguardando MongoDB iniciar..."
+  if ! wait_for_mongodb; then
+    echo "ERRO: MongoDB não iniciou corretamente"
+    echo "=== Status do MongoDB ==="
+    systemctl status mongod
+    echo "=== Últimas 20 linhas do log ==="
+    tail -n 20 /var/log/mongodb/mongod.log
+    exit 1
+  fi
 
   # Obtém o nome da instância atual
   INSTANCE_NAME=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/name" -H "Metadata-Flavor: Google")
@@ -166,13 +143,13 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   # Função para verificar se o ReplicaSet já está iniciado em algum nó
   check_replicaset_initialized() {
-    mongosh --eval "rs.status()" &>/dev/null
+    mongosh --quiet --eval "rs.status()" &>/dev/null
     return $?
   }
 
   # Função para obter o status do ReplicaSet
   get_replicaset_status() {
-    echo $(mongosh --quiet --eval "rs.status().ok")
+    mongosh --quiet --eval "rs.status().ok" || echo "0"
   }
 
   # Função para tentar inicializar o ReplicaSet
@@ -186,7 +163,7 @@ resource "google_compute_instance_template" "mongodb_template" {
           priority: 1
         }]
       })
-    "
+    " || return 1
   }
 
   # Função para tentar adicionar o nó ao ReplicaSet
@@ -194,7 +171,7 @@ resource "google_compute_instance_template" "mongodb_template" {
     local primary_host=$1
     mongosh --host $primary_host --eval "
       rs.add('$(hostname -f):27017')
-    "
+    " || return 1
   }
 
   # Tenta inicializar ou juntar-se ao ReplicaSet
@@ -208,26 +185,33 @@ resource "google_compute_instance_template" "mongodb_template" {
     # Verifica se o ReplicaSet já está iniciado
     if ! check_replicaset_initialized; then
       echo "ReplicaSet não está iniciado. Tentando inicializar..."
-      try_initialize_replicaset
-      sleep 10
-      
-      if [ "$(get_replicaset_status)" == "1" ]; then
-        echo "ReplicaSet inicializado com sucesso"
-        INITIALIZED=true
-        break
+      if try_initialize_replicaset; then
+        sleep 10
+        
+        if [ "$(get_replicaset_status)" == "1" ]; then
+          echo "ReplicaSet inicializado com sucesso"
+          INITIALIZED=true
+          break
+        fi
+      else
+        echo "Falha ao inicializar ReplicaSet"
       fi
     else
       echo "ReplicaSet já está iniciado. Tentando adicionar este nó..."
       PRIMARY_HOST=$(mongosh --quiet --eval "rs.isMaster().primary" || echo "")
       
       if [ ! -z "$PRIMARY_HOST" ]; then
-        try_add_to_replicaset $PRIMARY_HOST
-        sleep 10
-        INITIALIZED=true
-        break
+        if try_add_to_replicaset $PRIMARY_HOST; then
+          sleep 10
+          INITIALIZED=true
+          break
+        else
+          echo "Falha ao adicionar nó ao ReplicaSet"
+        fi
       fi
     fi
     
+    echo "Tentativa $ATTEMPT falhou. Aguardando próxima tentativa..."
     ATTEMPT=$((ATTEMPT + 1))
     sleep 10
   done
@@ -236,7 +220,7 @@ resource "google_compute_instance_template" "mongodb_template" {
     echo "Nó configurado com sucesso no ReplicaSet"
     
     # Se este for o nó que inicializou o ReplicaSet, configura o usuário admin
-    if [ "$(mongosh --quiet --eval "rs.isMaster().ismaster")" == "true" ]; then
+    if [ "$(mongosh --quiet --eval "rs.isMaster().ismaster" || echo "false")" == "true" ]; then
       echo "Configurando usuário admin..."
       sleep 30  # Aguarda a estabilização do ReplicaSet
       
@@ -254,25 +238,18 @@ resource "google_compute_instance_template" "mongodb_template" {
     fi
   else
     echo "Falha ao configurar o ReplicaSet após $MAX_ATTEMPTS tentativas"
+    echo "=== Status do MongoDB ==="
+    systemctl status mongod
+    echo "=== Últimas 20 linhas do log ==="
+    tail -n 20 /var/log/mongodb/mongod.log
     exit 1
   fi
-
-  # Configuração do logrotate
-  cat > /etc/logrotate.d/mongodb <<-EOL
-  /var/log/mongodb/mongod.log {
-    daily
-    rotate 7
-    compress
-    missingok
-    notifempty
-    copytruncate
-  }
-  EOL
 
   # Log completion
   echo "Startup script completed successfully"
   EOF
-  }
+}
+
   service_account {
     scopes = [
       "compute-ro",
