@@ -74,6 +74,24 @@ set -x  # Ativar depuração para rastrear execução
 # Funções utilitárias
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/mongodb/startup.log; echo "$1"; }
 
+get_instance_metadata() {
+  curl -s "http://metadata.google.internal/computeMetadata/v1/\$1" -H "Metadata-Flavor: Google"
+}
+
+get_mig_instances() {
+  project=\$(get_instance_metadata "project/project-id")
+  zone=\$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
+  mig_name="${local.prefix_name}-mongodb-nodes"
+  gcloud compute instance-groups managed list-instances "\$mig_name" \
+    --zone="\$zone" \
+    --project="\$project" \
+    --format="value(instance)" || echo ""
+}
+
+is_primary() {
+  mongosh -u "\$MONGO_ADMIN_USER" -p "\$MONGO_ADMIN_PWD" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
+}
+
 # Instalação do MongoDB 6.0
 wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
 echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
@@ -184,27 +202,7 @@ systemctl status mongod >> /var/log/mongodb/startup.log 2>&1
 # Definir variáveis de autenticação
 MONGO_ADMIN_USER="admin"
 MONGO_ADMIN_PWD="${random_password.mongodb.result}"
-# Log para verificar o valor da senha
 log "Senha do admin: \$MONGO_ADMIN_PWD"
-
-# Funções para configuração do ReplicaSet
-get_instance_metadata() {
-  curl -s "http://metadata.google.internal/computeMetadata/v1/\$1" -H "Metadata-Flavor: Google"
-}
-
-get_mig_instances() {
-  project=\$(get_instance_metadata "project/project-id")
-  zone=\$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
-  mig_name="${local.prefix_name}-mongodb-nodes"
-  gcloud compute instance-groups managed list-instances "\$mig_name" \
-    --zone="\$zone" \
-    --project="\$project" \
-    --format="value(instance)" || echo ""
-}
-
-is_primary() {
-  mongosh -u "\$MONGO_ADMIN_USER" -p "\$MONGO_ADMIN_PWD" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
-}
 
 # Obtém informações da instância atual
 INSTANCE_NAME=\$(hostname -f)
