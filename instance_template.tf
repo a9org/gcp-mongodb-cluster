@@ -60,8 +60,8 @@ resource "google_compute_instance_template" "mongodb_template" {
   }
 
   metadata = {
-    ssh-keys       = "ubuntu:${var.ssh_public_key}" # Adicionando a chave SSH
-    startup-script = <<EOF
+    ssh-keys       = "ubuntu:${var.ssh_public_key}"
+    startup-script = <<-EOF
   #!/bin/bash
   set -e
 
@@ -129,7 +129,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   chmod 755 /var/log/mongodb
 
   # Configuração do MongoDB
-  cat > /etc/mongod.conf <<EOL
+  cat > /etc/mongod.conf <<-EOL
   storage:
     dbPath: /data/mongodb
     journal:
@@ -258,7 +258,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   fi
 
   # Configuração do logrotate
-  cat > /etc/logrotate.d/mongodb <<EOL
+  cat > /etc/logrotate.d/mongodb <<-EOL
   /var/log/mongodb/mongod.log {
     daily
     rotate 7
