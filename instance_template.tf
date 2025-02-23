@@ -206,7 +206,7 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   # Função para obter o timestamp de criação da instância
   get_instance_creation_timestamp() {
-    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/creation-timestamp" -H "Metadata-Flavor: Google"
+    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/attributes/creation-timestamp" -H "Metadata-Flavor: Google"
   }
 
   # Função para encontrar outras instâncias do MIG
