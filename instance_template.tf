@@ -75,21 +75,21 @@ set -x  # Ativar depuração para rastrear execução
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/mongodb/startup.log; echo "$1"; }
 
 get_instance_metadata() {
-  curl -s "http://metadata.google.internal/computeMetadata/v1/\$1" -H "Metadata-Flavor: Google"
+  curl -s "http://metadata.google.internal/computeMetadata/v1/$${1}" -H "Metadata-Flavor: Google"
 }
 
 get_mig_instances() {
-  project=\$(get_instance_metadata "project/project-id")
-  zone=\$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
+  project=$$(get_instance_metadata "project/project-id")
+  zone=$$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
   mig_name="${local.prefix_name}-mongodb-nodes"
-  gcloud compute instance-groups managed list-instances "\$mig_name" \
-    --zone="\$zone" \
-    --project="\$project" \
+  gcloud compute instance-groups managed list-instances "$${mig_name}" \
+    --zone="$${zone}" \
+    --project="$${project}" \
     --format="value(instance)" || echo ""
 }
 
 is_primary() {
-  mongosh -u "\$MONGO_ADMIN_USER" -p "\$MONGO_ADMIN_PWD" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
+  mongosh -u "$${MONGO_ADMIN_USER}" -p "$${MONGO_ADMIN_PWD}" --authenticationDatabase admin --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
 }
 
 # Instalação do MongoDB 6.0
@@ -202,30 +202,30 @@ systemctl status mongod >> /var/log/mongodb/startup.log 2>&1
 # Definir variáveis de autenticação
 MONGO_ADMIN_USER="admin"
 MONGO_ADMIN_PWD="${random_password.mongodb.result}"
-log "Senha do admin: \$MONGO_ADMIN_PWD"
+log "Senha do admin: $${MONGO_ADMIN_PWD}"
 
 # Obtém informações da instância atual
-INSTANCE_NAME=\$(hostname -f)
-CREATION_TIMESTAMP=\$(get_instance_metadata "instance/attributes/creation-timestamp")
-log "Instância \$INSTANCE_NAME criada em \$CREATION_TIMESTAMP"
+INSTANCE_NAME=$$(hostname -f)
+CREATION_TIMESTAMP=$$(get_instance_metadata "instance/attributes/creation-timestamp")
+log "Instância $${INSTANCE_NAME} criada em $${CREATION_TIMESTAMP}"
 
 # Lista todas as instâncias do MIG
 log "Buscando instâncias do MIG..."
-INSTANCES=\$(get_mig_instances)
-if [ -z "\$INSTANCES" ]; then
+INSTANCES=$$(get_mig_instances)
+if [ -z "$${INSTANCES}" ]; then
   log "Erro: Não foi possível listar instâncias do MIG"
   exit 1
 fi
-log "Instâncias encontradas: \$INSTANCES"
+log "Instâncias encontradas: $${INSTANCES}"
 
 # Determina a instância mais antiga (primário)
 OLDEST_INSTANCE=""
 OLDEST_TIMESTAMP="9999-12-31T23:59:59Z"
-for instance in \$INSTANCES; do
-  instance_timestamp=\$(gcloud compute instances describe "\$instance" --zone="\$(get_instance_metadata "instance/zone" | cut -d'/' -f4)" --format="value(creationTimestamp)")
-  if [ -n "\$instance_timestamp" ] && [[ "\$instance_timestamp" < "\$OLDEST_TIMESTAMP" ]]; then
-    OLDEST_TIMESTAMP="\$instance_timestamp"
-    OLDEST_INSTANCE="\$instance"
+for instance in $${INSTANCES}; do
+  instance_timestamp=$$(gcloud compute instances describe "$${instance}" --zone="$$(get_instance_metadata "instance/zone" | cut -d'/' -f4)" --format="value(creationTimestamp)")
+  if [ -n "$${instance_timestamp}" ] && [[ "$${instance_timestamp}" < "$${OLDEST_TIMESTAMP}" ]]; then
+    OLDEST_TIMESTAMP="$${instance_timestamp}"
+    OLDEST_INSTANCE="$${instance}"
   fi
 done
 
