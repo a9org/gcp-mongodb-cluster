@@ -65,12 +65,16 @@ resource "google_compute_instance_template" "mongodb_template" {
 
   metadata = {
     ssh-keys           = "ubuntu:${var.ssh_public_key}"
-    creation-timestamp = formatdate("YYYY-MM-DDTHH:mm:ssZ", timestamp())
+    creation-timestamp = formatdate("YYYY-MM-DD'T'HH:mm:ssZ", timestamp())
     startup-script     = <<-EOF
   #!/bin/bash
   set -e
 
+  # Funções utilitárias
+  log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/mongodb/startup.log; echo "$1"; }
+
   # Instalação do MongoDB 6.0
+  log "Instalando MongoDB..."
   wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
   echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
   apt-get update
@@ -86,16 +90,16 @@ resource "google_compute_instance_template" "mongodb_template" {
       if [ -b "$disk_name" ]; then
         return 0
       fi
-      echo "Aguardando disco $disk_name ficar disponível... tentativa $attempt"
+      log "Aguardando disco $device_name... tentativa $attempt"
       sleep 5
       attempt=$((attempt + 1))
     done
-    
-    echo "Timeout esperando pelo disco $disk_name"
+    log "Timeout esperando pelo disco $device_name"
     return 1
   }
 
   # Configuração dos discos
+  log "Configurando discos..."
   DATA_DISK="/dev/sdb"
   LOGS_DISK="/dev/sdc"
 
@@ -134,6 +138,7 @@ resource "google_compute_instance_template" "mongodb_template" {
   chmod 755 /var/log/mongodb
 
   # Configuração do MongoDB com bind_ip ajustado
+  log "Criando configuração do MongoDB..."
   cat > /etc/mongod.conf <<-EOL
   storage:
     dbPath: /data/mongodb
@@ -156,7 +161,8 @@ resource "google_compute_instance_template" "mongodb_template" {
   EOL
 
   # Cria o arquivo de chave com conteúdo base64
-  echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
+  log "Criando keyfile..."
+  echo "${random_password.mongodb_keyfile_content.result}" > /etc/mongodb-keyfile
   chmod 600 /etc/mongodb-keyfile
   chown mongodb:mongodb /etc/mongodb-keyfile
 
@@ -170,180 +176,115 @@ resource "google_compute_instance_template" "mongodb_template" {
   ls -l /etc/mongodb-keyfile
   
   # Reinicia o MongoDB e verifica o status
+  log "Iniciando MongoDB..."
   systemctl stop mongod || true
   sleep 5
   systemctl start mongod
   systemctl enable mongod
 
-  # Função para verificar se o MongoDB está respondendo
-  wait_for_mongodb() {
-    local max_attempts=30
-    local attempt=1
-    
-    while [ $attempt -le $max_attempts ]; do
-      if mongosh --quiet --eval "db.adminCommand('ping')" &>/dev/null; then
-        echo "MongoDB está respondendo!"
-        return 0
-      fi
-      echo "Tentativa $attempt: Aguardando MongoDB iniciar..."
-      sleep 10
-      attempt=$((attempt + 1))
-    done
-    
-    echo "Timeout aguardando MongoDB iniciar"
-    return 1
+  # Aguarda o MongoDB iniciar
+  log "Aguardando MongoDB iniciar..."
+  for i in {1..30}; do
+    if mongosh --quiet --eval "db.adminCommand('ping')" &>/dev/null; then
+      log "MongoDB iniciado com sucesso"
+      break
+    fi
+    log "Tentativa $i: Aguardando MongoDB..."
+    sleep 5
+  done
+
+  # Funções para configuração do ReplicaSet
+  get_instance_metadata() {
+    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/$1" -H "Metadata-Flavor: Google"
   }
 
-  # Aguarda o MongoDB iniciar
-  echo "Aguardando MongoDB iniciar..."
-  if ! wait_for_mongodb; then
-    echo "ERRO: MongoDB não iniciou corretamente"
-    echo "=== Status do MongoDB ==="
-    systemctl status mongod
-    echo "=== Últimas 20 linhas do log ==="
-    tail -n 20 /var/log/mongodb/mongod.log
+  get_mig_instances() {
+    project=$(get_instance_metadata "project/project-id")
+    zone=$(get_instance_metadata "zone" | cut -d'/' -f4)
+    mig_name="${local.prefix_name}-mongodb-nodes"
+    gcloud compute instance-groups managed list-instances $mig_name \
+      --zone=$zone \
+      --project=$project \
+      --format="value(instance)" || echo ""
+  }
+
+  is_primary() {
+    mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"
+  }
+
+  # Obtém informações da instância atual
+  INSTANCE_NAME=$(hostname -f)
+  CREATION_TIMESTAMP=$(get_instance_metadata "attributes/creation-timestamp")
+  log "Instância $INSTANCE_NAME criada em $CREATION_TIMESTAMP"
+
+  # Lista todas as instâncias do MIG
+  log "Buscando instâncias do MIG..."
+  INSTANCES=$(get_mig_instances)
+  if [ -z "$INSTANCES" ]; then
+    log "Erro: Não foi possível listar instâncias do MIG"
     exit 1
   fi
 
-  # Função para obter o timestamp de criação da instância
-  get_instance_creation_timestamp() {
-    curl -s "http://metadata.google.internal/computeMetadata/v1/instance/attributes/creation-timestamp" -H "Metadata-Flavor: Google"
-  }
-
-  # Função para encontrar outras instâncias do MIG
-  find_mig_instances() {
-    local project=$(curl -s "http://metadata.google.internal/computeMetadata/v1/project/project-id" -H "Metadata-Flavor: Google")
-    local zone=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/zone" -H "Metadata-Flavor: Google" | cut -d/ -f4)
-    local mig_name="${local.prefix_name}-mongodb-nodes"
-    
-    # Lista as instâncias do MIG
-    instances=$(gcloud compute instance-groups managed list-instances $mig_name \
-      --region=us-central1 \
-      --project=$project \
-      --format="value(instance.scope(instances))")
-    
-    echo "$instances"
-  }
-
-  # Função para encontrar o primário existente
-  find_primary() {
-    local max_attempts=10
-    local attempt=1
-
-    while [ $attempt -le $max_attempts ]; do
-      echo "Tentativa $attempt de encontrar primário existente..."
-      
-      # Obter lista de instâncias do MIG
-      local instances=$(find_mig_instances)
-      
-      for instance in $instances; do
-        echo "Verificando $instance..."
-        
-        # Tenta conectar em cada instância
-        if mongosh --host $instance --eval "rs.isMaster()" --quiet 2>/dev/null | grep -q '"ismaster" : true'; then
-          echo "Primário encontrado: $instance"
-          echo $instance
-          return 0
-        fi
-      done
-      
-      attempt=$((attempt + 1))
-      sleep 10
-    done
-    
-    echo ""
-    return 1
-  }
-
-  # Obtém o timestamp de criação desta instância
-  CREATION_TIMESTAMP=$(get_instance_creation_timestamp)
-  INSTANCE_NAME=$(hostname)
-  echo "Esta instância ($INSTANCE_NAME) foi criada em: $CREATION_TIMESTAMP"
-
-  # Aguarda um tempo aleatório entre 0-30 segundos para evitar corrida
-  sleep $((RANDOM % 30))
-
-  # Verifica se já existe um primário
-  PRIMARY_HOST=$(find_primary)
-
-  if [ -z "$PRIMARY_HOST" ]; then
-    echo "Nenhum primário encontrado. Verificando se esta instância deve inicializar..."
-    
-    # Lista todas as instâncias e seus timestamps
-    instances=$(find_mig_instances)
-    oldest_instance=""
-    oldest_timestamp="999999999999999999"
-    
-    for instance in $instances; do
-      instance_timestamp=$(gcloud compute instances describe $instance --format="value(creationTimestamp)")
-      if [[ $instance_timestamp < $oldest_timestamp ]]; then
-        oldest_timestamp=$instance_timestamp
-        oldest_instance=$instance
-      fi
-    done
-    
-    # Se esta for a instância mais antiga, inicializa o ReplicaSet
-    if [[ "$INSTANCE_NAME" == "$oldest_instance" ]]; then
-      echo "Esta é a instância mais antiga. Iniciando novo ReplicaSet..."
-      
-      # Inicializa o ReplicaSet
-      mongosh --eval "
-        rs.initiate({
-          _id: 'rs0',
-          members: [
-            { _id: 0, host: '$(hostname -f):27017', priority: 2 }
-          ]
-        })
-      "
-      
-      # Aguarda o ReplicaSet inicializar
-      MAX_WAIT=60
-      WAIT_COUNT=0
-      while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if mongosh --eval "rs.status()" --quiet | grep -q '"stateStr" : "PRIMARY"'; then
-          echo "ReplicaSet inicializado com sucesso"
-          break
-        fi
-        echo "Aguardando ReplicaSet inicializar..."
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 1))
-      done
-
-      # Configura o usuário admin no primário
-      echo "Configurando usuário admin..."
-      sleep 10  # Aguarda estabilização
-      
-      mongosh admin --eval "
-        db.createUser({
-          user: 'admin',
-          pwd: '${random_password.mongodb.result}',
-          roles: ['root']
-        })
-      "
-    else
-      echo "Esta não é a instância mais antiga. Aguardando..."
-      exit 1
+  # Determina a instância mais antiga (primário)
+  OLDEST_INSTANCE=""
+  OLDEST_TIMESTAMP="9999-12-31T23:59:59Z"
+  for instance in $INSTANCES; do
+    instance_timestamp=$(gcloud compute instances describe $instance --zone=$(get_instance_metadata "zone" | cut -d'/' -f4) --format="value(creationTimestamp)")
+    if [[ "$instance_timestamp" < "$OLDEST_TIMESTAMP" ]]; then
+      OLDEST_TIMESTAMP=$instance_timestamp
+      OLDEST_INSTANCE=$instance
     fi
-  else
-    echo "Primário encontrado em $PRIMARY_HOST. Adicionando esta instância ao ReplicaSet..."
-    
-    # Tenta adicionar este nó ao ReplicaSet
-    mongosh --host $PRIMARY_HOST --eval "
-      rs.add('$(hostname -f):27017')
-    "
-  fi
+  done
 
-  # Aguarda a configuração ser aplicada
-  sleep 30
+  # Adiciona um atraso aleatório para evitar condições de corrida
+  sleep $((RANDOM % 10))
 
-  # Verifica o status final
-  echo "Status final do ReplicaSet:"
-  mongosh --eval "rs.status()"
+if [ "$INSTANCE_NAME" == "$OLDEST_INSTANCE" ]; then
+  log "Esta é a instância mais antiga. Iniciando ReplicaSet como primário..."
+  
+  # Inicializa o ReplicaSet com todas as instâncias
+  MEMBERS=""
+  i=0
+  for instance in $INSTANCES; do
+    MEMBERS="$MEMBERS{ _id: $i, host: '$instance:27017'$(if [ $i -eq 0 ]; then echo ', priority: 2'; else echo ', priority: 1'; fi) },"
+    i=$((i + 1))
+  done
+  MEMBERS_JSON="[$(echo $MEMBERS | sed 's/,$//')]"
 
-  # Log completion
-  echo "Startup script completed successfully"
-  EOF
-  }
+  mongosh --eval "rs.initiate({ _id: 'rs0', members: $MEMBERS_JSON })"
+  
+  # Aguarda o primário estar pronto
+  for i in {1..30}; do
+    if is_primary; then
+      log "ReplicaSet iniciado. Configurando usuário admin..."
+      mongosh admin --eval "db.createUser({ user: 'admin', pwd: '${random_password.mongodb.result}', roles: ['root'] })"
+      break
+    fi
+    log "Aguardando primário... tentativa $i"
+    sleep 5
+  done
+else
+  log "Esta não é a instância mais antiga. Tentando se juntar ao ReplicaSet..."
+  
+  # Aguarda o primário estar disponível
+  for i in {1..60}; do
+    if mongosh --host $OLDEST_INSTANCE --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
+      log "Primário encontrado em $OLDEST_INSTANCE. Adicionando esta instância..."
+      mongosh --host $OLDEST_INSTANCE --eval "rs.add('$INSTANCE_NAME:27017')"
+      break
+    fi
+    log "Aguardando primário em $OLDEST_INSTANCE... tentativa $i"
+    sleep 5
+  done
+fi
+
+# Verifica o status final
+log "Verificando status do ReplicaSet..."
+mongosh --eval "rs.status()" >> /var/log/mongodb/startup.log
+
+log "Configuração concluída com sucesso"
+EOF
+}
   service_account {
     scopes = [
       "compute-ro",
