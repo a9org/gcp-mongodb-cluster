@@ -74,7 +74,6 @@ resource "google_compute_instance_template" "mongodb_template" {
   log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /var/log/mongodb/startup.log; echo "$1"; }
 
   # Instalação do MongoDB 6.0
-  log "Instalando MongoDB..."
   wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
   echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
   apt-get update
@@ -90,16 +89,13 @@ resource "google_compute_instance_template" "mongodb_template" {
       if [ -b "$disk_name" ]; then
         return 0
       fi
-      log "Aguardando disco $device_name... tentativa $attempt"
       sleep 5
       attempt=$((attempt + 1))
     done
-    log "Timeout esperando pelo disco $device_name"
     return 1
   }
 
   # Configuração dos discos
-  log "Configurando discos..."
   DATA_DISK="/dev/sdb"
   LOGS_DISK="/dev/sdc"
 
@@ -284,7 +280,7 @@ mongosh --eval "rs.status()" >> /var/log/mongodb/startup.log
 
 log "Configuração concluída com sucesso"
 EOF
-}
+  }
   service_account {
     scopes = [
       "compute-ro",
