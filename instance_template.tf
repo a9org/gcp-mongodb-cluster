@@ -166,7 +166,7 @@
   chmod 600 /etc/mongodb-keyfile
   chown mongodb:mongodb /etc/mongodb-keyfile
 
-  # Inicia o MongoDB
+# Inicia o MongoDB
   systemctl start mongod
   systemctl enable mongod
 
@@ -186,6 +186,7 @@
   # Obter informações da instância e do MIG
   INSTANCE_NAME=$(hostname -f)
   prefix_name=$(get_instance_metadata "prefix_name")
+  region=$(get_instance_metadata "region")
   project=$(get_instance_metadata "project/project-id")
   zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
   mig_name="$${prefix_name}-mongodb-nodes"
@@ -196,7 +197,7 @@
 
   # Listar todas as instâncias do MIG
   INSTANCES=$(gcloud compute instance-groups managed list-instances "$mig_name" \
-              --region="${var.region}" \
+              --region="$region" \
               --format="value(name)" | sort)
   log "Instâncias encontradas: $INSTANCES"
 
@@ -262,7 +263,7 @@
 
   log "Configuração concluída com sucesso"
   EOF
-    }
+  }
     service_account {
       scopes = [
         "compute-ro",
