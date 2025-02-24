@@ -1,6 +1,6 @@
-# Terraform Module for MongoDB Cluster on GCP
+# Terraform Module for MongoDB ReplicaSet on GCP
 
-This Terraform module automates the creation of a MongoDB cluster within your Google Cloud Platform (GCP) project, providing a robust and scalable infrastructure for your database needs.
+This Terraform module automates the deployment of a MongoDB ReplicaSet cluster on Google Cloud Platform (GCP), providing a secure and highly available database infrastructure.
 
 ## Table of Contents
 
@@ -17,60 +17,72 @@ This Terraform module automates the creation of a MongoDB cluster within your Go
 
 ### Overview
 
-This module offers an efficient and reliable way to provision a MongoDB cluster, customizable through variables to meet your specific needs. Key features include:
+This module provisions a MongoDB ReplicaSet tailored for your GCP project, customizable via variables to meet specific requirements. Key features include:
 
-- **MongoDB Cluster Creation:** Configures all essential components to create a MongoDB cluster, including shards, nodes, load balancers, and networking.
-- **High Availability:** Implements a robust architecture with multiple shards and nodes across different availability zones.
-- **Autoscaling:** Built-in support for automatic scaling based on CPU utilization and custom metrics.
-- **Monitoring:** Integrated monitoring and alerting through Google Cloud Monitoring.
-- **Security:** Implements security best practices with firewalls and private networks.
+- **MongoDB ReplicaSet Creation:** Configures a ReplicaSet with a primary node (index `0`) and configurable secondary nodes.
+- **High Availability:** Distributes instances across multiple zones in a specified region.
+- **Security:** Generates a random admin password and a secure keyfile for authentication, with firewall rules to control access.
+- **Dedicated Storage:** Provisions separate SSD disks for data and logs on each node.
+- **Automation:** Fully automated setup via a startup script, including disk formatting, MongoDB installation, and ReplicaSet configuration.
 
 ### Architecture
 
 This module creates the following resources in GCP:
 
-- **MongoDB Shards:** Three independent shards for data distribution
-- **Instance Groups:** Managed instance groups for each shard with autoscaling
-- **Load Balancers:** Internal load balancers for traffic distribution
-- **Monitoring:** Cloud Monitoring alerts and health checks
-- **DNS:** Internal DNS configuration for service discovery
+- **Compute Instances:** A set of `google_compute_instance` resources named `<project>-<environment>-mongodb-node-XXXX` (e.g., `myproject-dev-mongodb-node-0000`), where `XXXX` is a zero-padded index (e.g., `0000`, `0001`).
+- **Persistent Disks:** Two additional SSD disks per instance for data (`mongodb-data`) and logs (`mongodb-logs`).
+- **Firewall Rules:**
+  - External access for SSH (`port 22`) from any IP (configurable).
+  - Internal communication between nodes on `port 27017` for ReplicaSet replication.
+- **ReplicaSet:** A MongoDB ReplicaSet (`rs0`) with the primary node at index `0` and automatic joining of secondary nodes.
 
 ### Prerequisites
 
-- **Google Cloud Account:** Active account on Google Cloud Platform
-- **Terraform:** Install and configure Terraform on your machine
-- **Google Cloud Provider for Terraform:** Configured Google Cloud provider
-- **GCP CLI:** Google Cloud command-line tool
-- **MongoDB:** Understanding of MongoDB sharding and replication concepts
+- **Google Cloud Account:** An active GCP account with a project configured.
+- **Terraform:** Version 1.0.0 or higher installed on your machine.
+- **Google Cloud Provider for Terraform:** Configured with valid credentials (e.g., via `gcloud auth application-default login`).
+- **GCP CLI:** Optional, for manual debugging or verification.
+- **MongoDB Knowledge:** Basic understanding of MongoDB ReplicaSet concepts.
 
 ### Variables
 
 This module supports the following variables for customization:
 
-### Required Variables
+#### Required Variables
 
-- `project`: The GCP project name
-- `region`: The region where the cluster will be created
-- `environment`: The environment (development, staging, production)
-- `min_nodes`: The minimum number of nodes per shard
-- `max_nodes`: The maximum number of nodes per shard
-- `machine_type`: The machine type for MongoDB instances
-* `network`: The name or self-link of the Google Compute Engine network.
-* `subnetwork`: The name or self-link of the Google Compute Engine subnet.
+| Name            | Description                                              | Type   |
+|-----------------|----------------------------------------------------------|--------|
+| `project`       | The GCP project name                                     | string |
+| `region`        | The region where the cluster will be created             | string |
+| `environment`   | The environment (e.g., `development`, `staging`, `production`) | string |
+| `owner`         | The owner of the infrastructure resources                | string |
+| `network`       | The name or self-link of the GCP network                 | string |
+| `subnetwork`    | The name or self-link of the GCP subnetwork              | string |
+| `ssh_public_key`| SSH public key for instance access                       | string |
 
-For more details, see `variables.tf`
+#### Optional Variables
+
+| Name                     | Description                              | Type   | Default          |
+|--------------------------|------------------------------------------|--------|------------------|
+| `machine_type`           | The machine type for instances           | string | `e2-standard-2`  |
+| `replica_count`          | Number of nodes in the ReplicaSet        | number | `3`              |
+| `mongodb_data_disk_size` | Size of the data disk in GB              | number | `100`            |
+| `mongodb_logs_disk_size` | Size of the logs disk in GB              | number | `10`             |
+
+For more details, see `variables.tf`.
 
 ### Outputs
 
-The module provides comprehensive outputs including:
+The module provides the following output:
 
-- Instance group information
-- Load balancer IPs
-- DNS records
-- Connection strings
-- Monitoring configuration
+| Name               | Description                     | Sensitive |
+|--------------------|---------------------------------|-----------|
+| `mongodb_password` | MongoDB admin password          | Yes       |
 
-For additional details, refer to `outputs.tf`
+To retrieve the password after deployment:
+```bash
+terraform output -raw mongodb_password
+```
 
 ## Usage
 
@@ -80,50 +92,53 @@ To use this module in your Terraform configuration:
 
 ```hcl
 module "mongodb_cluster" {
-  source       = "github.com/your-org/mongodb-cluster-gcp"
-  project      = "your-project"
-  region       = "us-central1"
-  environment  = "production"
-  min_nodes    = 3
-  max_nodes    = 5
-  machine_type = "e2-standard-2"
-  network      = "your_network_self_link"
-  subnetwork   = "your_subnet_self_link"
+  source              = "./modules/mongodb_cluster"
+  project             = "myproject"
+  region              = "us-central1"
+  environment         = "dev"
+  owner               = "devops"
+  network             = "default"
+  subnetwork          = "default"
+  ssh_public_key      = "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
+  replica_count       = 3
+  machine_type        = "e2-standard-2"
+  mongodb_data_disk_size = 100
+  mongodb_logs_disk_size = 10
+}
+
+output "mongodb_admin_password" {
+  value     = module.mongodb_cluster.mongodb_password
+  sensitive = true
 }
 ```
 
 ### Standalone Usage
 
-1. **Clone the Repository**
-
+1. **Clone the Repository** (if hosted in a repo):
     ```bash
     git clone <repository-url>
     cd <repository-directory>
     ```
 
-2. **Initialize Terraform**
-
+2. **Initialize Terraform**:
     ```bash
     terraform init
     ```
 
-3. **Configure Variables**
-
+3. **Configure Variables**:
     Create a `terraform.tfvars` file:
-
     ```hcl
-    project      = "your-project"
-    region       = "us-central1"
-    environment  = "production"
-    min_nodes    = 3
-    max_nodes    = 5
-    machine_type = "e2-standard-2"
-    network      = "mongodb-network"
-    subnetwork   = "mongodb-subnet"
+    project        = "myproject"
+    region         = "us-central1"
+    environment    = "dev"
+    owner          = "devops"
+    network        = "default"
+    subnetwork     = "default"
+    ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
+    replica_count  = 3
     ```
 
-4. **Apply the Configuration**
-
+4. **Apply the Configuration**:
     ```bash
     terraform plan
     terraform apply
@@ -132,14 +147,13 @@ module "mongodb_cluster" {
 ## Cleanup
 
 To destroy the infrastructure:
-
 ```bash
 terraform destroy
 ```
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Author
 

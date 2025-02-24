@@ -34,12 +34,6 @@ variable "subnetwork" {
   type        = string
 }
 
-variable "create_dns" {
-  description = "Determines whether a DNS record will be created for the load balancer. When set to 'true', a DNS record will be created, pointing to the load balancer's IP address. When set to 'false', no DNS record will be created. Use this option if you already have a DNS record or want to manage it manually."
-  type        = bool
-  default     = true
-}
-
 variable "mongodb_data_disk_size" {
   description = "Size of the MongoDB data disk in GB"
   type        = number
