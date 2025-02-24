@@ -78,7 +78,7 @@
   }
 
   get_instance_metadata() {
-      curl -s "http://metadata.google.internal/computeMetadata/v1/$${1}" -H "Metadata-Flavor: Google"
+      curl -s "http://metadata.google.internal/computeMetadata/v1/$1" -H "Metadata-Flavor: Google"
   }
 
   # Instalação do MongoDB 6.0
@@ -186,14 +186,19 @@ EOL
   # Obter informações da instância e do MIG
   INSTANCE_NAME=$(hostname -f)
   prefix_name="${local.prefix_name}"
-  region=$(get_instance_metadata "region")
   project=$(get_instance_metadata "project/project-id")
   zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
+  region=${var.region}
 
-  # Depuração do prefix_name
+  # Depuração
   log "Valor de prefix_name: $prefix_name"
   if [ -z "$prefix_name" ]; then
     log "ERRO: prefix_name está vazio!"
+    exit 1
+  fi
+  log "Valor de region: $region"
+  if [ -z "$region" ]; then
+    log "ERRO: region está vazio!"
     exit 1
   fi
 
