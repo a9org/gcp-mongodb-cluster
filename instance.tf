@@ -22,6 +22,25 @@ resource "local_file" "mongodb_keyfile" {
   filename = "${path.module}/mongodb-keyfile"
 }
 
+# Discos adicionais para dados
+resource "google_compute_disk" "mongodb_data_disk" {
+  count = var.replica_count
+  name  = "${local.prefix_name}-mongodb-data-disk-${format("%04d", count.index)}"
+  type  = "pd-ssd"
+  size  = var.mongodb_data_disk_size
+  zone  = "${var.region}-${element(["a", "b", "c"], count.index % 3)}"
+}
+
+# Discos adicionais para logs
+resource "google_compute_disk" "mongodb_logs_disk" {
+  count = var.replica_count
+  name  = "${local.prefix_name}-mongodb-logs-disk-${format("%04d", count.index)}"
+  type  = "pd-ssd"
+  size  = var.mongodb_logs_disk_size
+  zone  = "${var.region}-${element(["a", "b", "c"], count.index % 3)}"
+}
+
+# Cluster MongoDB
 resource "google_compute_instance" "mongodb_nodes" {
   count        = var.replica_count
   name         = "${local.prefix_name}-mongodb-node-${format("%04d", count.index)}"
@@ -39,24 +58,23 @@ resource "google_compute_instance" "mongodb_nodes" {
     auto_delete = true
   }
 
-  disk {
-    auto_delete  = true
-    disk_size_gb = var.mongodb_data_disk_size
-    type         = "pd-ssd"
-    device_name  = "mongodb-data"
+  # Disco de dados
+  attached_disk {
+    source      = google_compute_disk.mongodb_data_disk[count.index].self_link
+    device_name = "mongodb-data"
+    mode        = "READ_WRITE"
   }
 
-  disk {
-    auto_delete  = true
-    disk_size_gb = var.mongodb_logs_disk_size
-    type         = "pd-ssd"
-    device_name  = "mongodb-logs"
+  # Disco de logs
+  attached_disk {
+    source      = google_compute_disk.mongodb_logs_disk[count.index].self_link
+    device_name = "mongodb-logs"
+    mode        = "READ_WRITE"
   }
 
   network_interface {
     network    = var.network
     subnetwork = var.subnetwork
-    access_config {} # Adiciona IP público, opcional
   }
 
   metadata = {
