@@ -74,7 +74,7 @@ resource "google_compute_instance" "mongodb_nodes" {
 
   network_interface {
     network    = var.network
-    subnetwork = var.subnetwork
+  #  subnetwork = var.subnetwork
   }
 
   metadata = {
