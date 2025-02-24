@@ -32,6 +32,7 @@ variable "network" {
 variable "subnetwork" {
   description = "The name or self_link of the Google Compute Engine subnetwork in which the cluster's instances are launched."
   type        = string
+  default     = ""
 }
 
 variable "mongodb_data_disk_size" {
