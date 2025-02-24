@@ -141,25 +141,25 @@
   chmod 755 /data/mongodb
   chmod 755 /var/log/mongodb
 
-# Configuração do MongoDB
-  cat > /etc/mongod.conf <<EOL
-  storage:
-    dbPath: /data/mongodb
-    journal:
-      enabled: true
-  systemLog:
-    destination: file
-    path: /var/log/mongodb/mongod.log
-    logAppend: true
-  net:
-    port: 27017
-    bindIp: 0.0.0.0
-  replication:
-    replSetName: "rs0"
-  security:
-    keyFile: /etc/mongodb-keyfile
-    authorization: enabled
-  EOL
+  # Configuração do MongoDB
+cat > /etc/mongod.conf <<EOL
+storage:
+  dbPath: /data/mongodb
+  journal:
+    enabled: true
+systemLog:
+  destination: file
+  path: /var/log/mongodb/mongod.log
+  logAppend: true
+net:
+  port: 27017
+  bindIp: 0.0.0.0
+replication:
+  replSetName: "rs0"
+security:
+  keyFile: /etc/mongodb-keyfile
+  authorization: enabled
+EOL
 
   # Cria o arquivo de chave
   echo "${random_password.mongodb_keyfile_content.result}" | base64 > /etc/mongodb-keyfile
@@ -185,11 +185,20 @@
 
   # Obter informações da instância e do MIG
   INSTANCE_NAME=$(hostname -f)
-  prefix_name=$(get_instance_metadata "prefix_name")
+  prefix_name="${local.prefix_name}"
   region=$(get_instance_metadata "region")
   project=$(get_instance_metadata "project/project-id")
   zone=$(get_instance_metadata "instance/zone" | cut -d'/' -f4)
-  mig_name="$${prefix_name}-mongodb-nodes"
+
+  # Depuração do prefix_name
+  log "Valor de prefix_name: $prefix_name"
+  if [ -z "$prefix_name" ]; then
+    log "ERRO: prefix_name está vazio!"
+    exit 1
+  fi
+
+  mig_name="${local.prefix_name}-mongodb-nodes"
+  log "Valor de mig_name: $mig_name"
 
   # Configurar o gcloud
   gcloud config set project "$project"
