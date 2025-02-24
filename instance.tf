@@ -79,9 +79,6 @@ resource "google_compute_instance" "mongodb_nodes" {
 
   metadata = {
     ssh-keys       = "ubuntu:${var.ssh_public_key}"
-    prefix_name    = local.prefix_name
-    replica_count  = var.replica_count
-    instance_index = count.index # Passa o índice da instância
     startup-script = <<-EOF
     #!/bin/bash
     set -e
@@ -198,21 +195,17 @@ EOL
     MONGO_ADMIN_PWD="${random_password.mongodb.result}"
 
     # Obter informações da instância
-    INSTANCE_NAME=$(hostname -f)
-    prefix_name=$(get_instance_metadata "prefix_name")
-    replica_count=$(get_instance_metadata "replica_count")
-    instance_index=$(get_instance_metadata "instance_index")
+    INSTANCE_NAME=$(hostname -f | awk -F '.' '{print $1}')
+    prefix_name=${local.prefix_name}
+    replica_count=${var.replica_count}
 
     # Depuração
     log "Hostname: $INSTANCE_NAME"
-    log "Prefix name: $prefix_name"
-    log "Replica count: $replica_count"
-    log "Instance index: $instance_index"
 
     # Determinar se é o primário (índice 0)
     PRIMARY_NAME="$${prefix_name}-mongodb-node-0000"
 
-    if [ "$instance_index" = "0" ]; then
+    if [ "$PRIMARY_NAME" = "$INSTANCE_NAME" ]; then
       log "Esta é a instância primária (índice 0). Iniciando ReplicaSet..."
 
       # Construir configuração do ReplicaSet
