@@ -99,34 +99,13 @@ resource "google_compute_instance" "mongodb_nodes" {
   apt-get update
   apt-get install -y mongodb-org
 
-  # Função para esperar disco ficar disponível
-  wait_for_disk() {
-    local disk_name=$1
-    local max_attempts=60
-    local attempt=1
-      
-    while [ $attempt -le $max_attempts ]; do
-      if [ -b "$disk_name" ]; then
-        return 0
-      fi
-      sleep 5
-      attempt=$((attempt + 1))
-    done
-    return 1
-  }
-
   # Configuração dos discos
   DATA_DISK="/dev/sdb"
   LOGS_DISK="/dev/sdc"
 
-  # Aguarda os discos ficarem disponíveis
-  wait_for_disk $DATA_DISK
-  wait_for_disk $LOGS_DISK
-
   # Disco de dados
   if [ -b "$DATA_DISK" ]; then
     echo "Formatando disco de dados..."
-    mkfs.xfs $DATA_DISK
     mkdir -p /data/mongodb
     mount $DATA_DISK /data/mongodb
     echo "$DATA_DISK /data/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
@@ -138,7 +117,6 @@ resource "google_compute_instance" "mongodb_nodes" {
   # Disco de logs
   if [ -b "$LOGS_DISK" ]; then
     echo "Formatando disco de logs..."
-    mkfs.xfs $LOGS_DISK
     mkdir -p /var/log/mongodb
     mount $LOGS_DISK /var/log/mongodb
     echo "$LOGS_DISK /var/log/mongodb xfs defaults,nofail 0 2" >> /etc/fstab
