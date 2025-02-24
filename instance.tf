@@ -93,6 +93,22 @@ resource "google_compute_instance" "mongodb_nodes" {
     get_instance_metadata() {
         curl -s "http://metadata.google.internal/computeMetadata/v1/$1" -H "Metadata-Flavor: Google"
     }
+wait_for_mongo() {
+        local host=$1
+        local max_attempts=60
+        local attempt=1
+        while [ $attempt -le $max_attempts ]; do
+            if nc -z -w 5 $host 27017; then
+                log "MongoDB em $host:27017 está acessível"
+                return 0
+            fi
+            log "Aguardando MongoDB em $host:27017... tentativa $attempt"
+            sleep 5
+            attempt=$((attempt + 1))
+        done
+        log "ERRO: MongoDB em $host:27017 não ficou acessível após $max_attempts tentativas"
+        exit 1
+}
 
 wait_for_disk() {
         local disk_path=$1
@@ -206,6 +222,12 @@ EOL
 
     if [ "$PRIMARY_NAME" = "$INSTANCE_NAME" ]; then
       log "Esta é a instância primária (índice 0). Iniciando ReplicaSet..."
+
+# Aguarda todos os nós estarem prontos
+      for i in $(seq 0 $((replica_count - 1))); do
+        node_name="$${prefix_name}-mongodb-node-$(printf "%04d" $i)"
+        wait_for_mongo "$node_name"
+      done
 
 # Construção corrigida do rs_config
       rs_config='{"_id": "rs0", "members": ['
