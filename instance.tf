@@ -207,20 +207,20 @@ EOL
     if [ "$PRIMARY_NAME" = "$INSTANCE_NAME" ]; then
       log "Esta é a instância primária (índice 0). Iniciando ReplicaSet..."
 
-      # Construir configuração do ReplicaSet
+# Construção corrigida do rs_config
       rs_config='{"_id": "rs0", "members": ['
-      rs_config='$${rs_config}{"_id": 0, "host": "'$${INSTANCE_NAME}:27017'", "priority": 2}'
+      first_member="{\"_id\": 0, \"host\": \"$${INSTANCE_NAME}:27017\", \"priority\": 2}"
+      rs_config="$${rs_config}$${first_member}"
       for i in $(seq 1 $((replica_count - 1))); do
         secondary_suffix=$(printf "%04d" $i)
         secondary_name="$${prefix_name}-mongodb-node-$${secondary_suffix}"
         rs_config="$${rs_config},{\"_id\": $i, \"host\": \"$${secondary_name}:27017\", \"priority\": 1}"
       done
-      rs_config='$${rs_config}]}'
+      rs_config="$${rs_config}]}"
 
       log "Configuração do ReplicaSet: $${rs_config}"
-      mongosh --eval "rs.initiate($${rs_config})" --quiet
+      mongosh --eval 'rs.initiate('"$${rs_config}"')' --quiet
 
-      # Aguarda o primário estar pronto e cria usuário admin
       for i in {1..60}; do
         if mongosh --quiet --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q "true"; then
           log "ReplicaSet iniciado com sucesso"
@@ -233,7 +233,6 @@ EOL
     else
       log "Esta é uma instância secundária. Tentando se juntar ao ReplicaSet..."
 
-      # Aguarda o primário estar disponível
       for i in {1..120}; do
         if mongosh --host "$PRIMARY_NAME" \
           -u "$${MONGO_ADMIN_USER}" \
@@ -257,7 +256,6 @@ EOL
     log "Configuração concluída com sucesso"
     EOF
   }
-
   service_account {
     scopes = [
       "compute-ro",
