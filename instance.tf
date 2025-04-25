@@ -287,7 +287,7 @@ EOL
   }
 
   lifecycle {
-    ignore_changes = [machine_type]
+    ignore_changes = [machine_type, metadata]
   }
 
   labels = local.common_tags
