@@ -286,5 +286,9 @@ EOL
     ]
   }
 
+  lifecycle {
+    ignore_changes = [machine_type]
+  }
+
   labels = local.common_tags
 }
